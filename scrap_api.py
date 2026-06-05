@@ -5,12 +5,12 @@ from TikTokApi import TikTokApi
 
 ms_token = os.getenv("MSTOKEN")
 
-async def scrap_comentarios(video: str, limite: int = 100):
+async def scrap_comentarios(video: str, token: str, limite: int = 100):
 
     async with TikTokApi() as api:
 
         await api.create_sessions(
-            ms_tokens=[ms_token],
+            ms_tokens=[token],
             num_sessions=1,
             sleep_after=3,        # pausa tras crear sesión
             headless=False,       # menos detectable que headless
@@ -21,7 +21,7 @@ async def scrap_comentarios(video: str, limite: int = 100):
         #for v in video:
         video = api.video(id=video)
         
-
+        await asyncio.sleep(random.uniform(2,10))
         async for comentario in video.comments(count=limite):
             data = comentario.as_dict
             comments.append({
@@ -32,6 +32,6 @@ async def scrap_comentarios(video: str, limite: int = 100):
                 #"fecha": data.get("create_time"),
             })
 
-        await asyncio.sleep(random.uniform(2,10))
-        print(comments)
+            await asyncio.sleep(random.uniform(2,10))
+        #print(comments)
         return comments
