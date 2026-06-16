@@ -6,9 +6,12 @@ async def scrape_profile(user, max_videos=4):
     options = webdriver.ChromeOptions()
     
     async with webdriver.Chrome(options=options) as driver:
-
-        await driver.get(f"https://www.tiktok.com/@{user}", wait_load=True)
-        await asyncio.sleep(random.uniform(5, 10))
+        for i in range(3):
+            try:
+                await driver.get(f"https://www.tiktok.com/@{user}", wait_load=True)
+            except:
+                print("error")
+        await asyncio.sleep(random.uniform(10, 20))
         # elem_search = await driver.find_element(By.CSS_SELECTOR, "div[data-e2e='nav-search']")
         # await elem_search.click()
         # await asyncio.sleep(random.uniform(2, 4))
