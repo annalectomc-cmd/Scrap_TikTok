@@ -6,17 +6,28 @@ comments = []
 async def scrape_comments(perfil_url):
     
     async with AsyncStealthySession(headless=False) as session:
+        
         page = await session.fetch(
             perfil_url,                  #URL
             network_idle=True,
             page_action=flujo_completo,  # flujo 
         )
-
         return comments       
 
 async def flujo_completo(page):
     global comments
-    await page.set_viewport_size({"width": 1680, "height": 1050})
+    comments = []
+    await page.set_viewport_size({"width": 1920, "height": 1080})
+    
+    for x in range(4):    
+        div_error = await page.query_selector_all("div[class*='DivErrorContainer']")
+        
+        if div_error:    
+            await page.mouse.wheel(0, 2000)
+            await asyncio.sleep(random.uniform(1, 3))
+            boton = await page.query_selector("div[class*='DivErrorContainer'] button")
+            await boton.click()
+            await asyncio.sleep(random.uniform(5, 10))
     await page.wait_for_selector("div[data-e2e='user-post-item']")
     await asyncio.sleep(random.uniform(1, 3))
     first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
@@ -47,7 +58,7 @@ async def flujo_completo(page):
                     "video_id":  video_id
                 }
                 
-            await asyncio.sleep(random.uniform(6, 10))
+            await asyncio.sleep(random.uniform(10, 20))
             if elements:
                 await elements[-1].scroll_into_view_if_needed()
             
