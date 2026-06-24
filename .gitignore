@@ -15,3 +15,7 @@ __pycache__/
 
 
 tiktok_cookies.json
+
+dist/
+build/
+app.spec
