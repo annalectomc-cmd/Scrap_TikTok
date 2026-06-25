@@ -3,6 +3,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from scr_driverless import scrape_profile
 from scrapl import scrape_comments
 from flask_cors import CORS
+from flasgger import Swagger
 
 def resource_path(relative):
     base = getattr(sys, "MEIPASS", os.path.abspath("."))
@@ -14,17 +15,37 @@ app = Flask(__name__
             # static_url_path=""
             )
 CORS(app)
+Swagger(app)
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
+    """
+    Inicio
+    ---
+    responses:
+        200:
+            description: Mensaje
+    """
     #desarrollo
-    return "Bienvenido", 200
+    if request.method =="GET":
+        return "Bienvenido", 200
     #despliegue
     # return send_from_directory(app.static_folder, "index.html")
     
-
 @app.route("/comments", methods=["GET"])
 def get_comments():
+    """
+    Obtener comentarios
+    ---
+    parameters:
+        - name: profile
+          in: query
+          type: string
+          required: true
+    responses:
+        200:
+            description: Comentarios Obtenidos
+    """
     if request.method == "GET":
         comments = asyncio.run(scrape_comments("https://www.tiktok.com/@"+request.args.get("profile")))
         return jsonify(comments), 200
@@ -36,24 +57,26 @@ def get_comments():
 #     if os.path.exists(full):
 #         comments = send_from_directory(app.static_folder, path)
 #         return jsonify(comments), 200
-    
-
 
 def browser_ver():
     ruta = os.path.join(os.environ.get("USERPROFILE", ""), "AppData", "Local", "ms-playwright")
     return os.path.exists(ruta) and os.listdir(ruta)
 
 def install_browser():
+
     if browser_ver():
         return
+    
     try:
         from scrapling.cli import install
         install([], standalone_mode=False)
+
     except Exception as e:
         print("error")
 
 def open_browser():
     webbrowser.open("http://localhost:5000")
+
 
 if __name__ == "__main__":
     #desarrollo
