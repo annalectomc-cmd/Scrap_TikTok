@@ -36,11 +36,11 @@ async def flujo_completo(page):
     await first_video.click()
     await asyncio.sleep(random.uniform(1, 3))
     watched = {}
-
+    
     for i in range(9):
         video_id = page.url
 
-        for i in range(19):
+        for i in range(10):
             elem_com_icon = await page.query_selector_all("button[aria-label*='comentario']")
             
             if elem_com_icon:
@@ -75,7 +75,7 @@ async def flujo_completo(page):
                     await elements[-1].scroll_into_view_if_needed()
 
                 except:
-                    continue
+                    continue        
         elem_com = await page.query_selector("button[data-e2e='arrow-right']")
         await elem_com.click()
         await asyncio.sleep(random.uniform(5, 10))
