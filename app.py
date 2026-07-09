@@ -42,14 +42,26 @@ def get_comments():
           in: query
           type: string
           required: true
+        - name: cant
+          in: query
+          type: integer
+          required: true
+        - name: type
+          in: query
+          type: integer
+          required: true
     responses:
         200:
             description: Comentarios Obtenidos
+        500:
+            description: No se obtuvieron comentarios
     """
     if request.method == "GET":
-        comments = asyncio.run(scrape_comments("https://www.tiktok.com/@"+request.args.get("profile")))
-        return jsonify(comments), 200
-
+        comments = asyncio.run(scrape_comments(request.args.get("profile"), request.args.get("cant", type=int), request.args.get("type", type=int)))
+        if len(comments)> 0:
+            return jsonify(comments), 200
+        else:
+            return jsonify({"message": "no se encontraron comentarios"}), 500
 #despliegue
 # @app.route("/<path:path>")
 # def serve_react(path):

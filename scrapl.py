@@ -1,19 +1,37 @@
 import asyncio
 import random
+import re
+from playwright.async_api import Page
 from scrapling.fetchers import AsyncStealthySession
-
+from datetime import datetime, timedelta
 comments = []
-async def scrape_comments(perfil_url):
+videos_cant = 0
+content_type = 1
+async def scrape_comments(perfil_url, max_videos=100, type=1):
+    global videos_cant
+    global content_type
+    content_type = type
+    videos_cant = max_videos
+    url = ""
+
+    if type==1:
+        url="https://www.tiktok.com/@"+perfil_url
+    
+    else:
+        url="https://www.tiktok.com/tag/"+perfil_url
+    
+    
     async with AsyncStealthySession(headless=False) as session:     
         page = await session.fetch(
-            perfil_url,                  #URL
+            url,                  #URL
             network_idle=True,
             page_action=flujo_completo,  # flujo 
         )
         return comments       
 
-async def flujo_completo(page):
+async def flujo_completo(page: Page):
     global comments
+    global content_type
     comments = []
     await page.set_viewport_size({"width": 1280, "height": 720})
     
@@ -26,58 +44,121 @@ async def flujo_completo(page):
             boton = await page.query_selector("div[class*='DivErrorContainer'] button")
             await boton.hover()
             await boton.click()
-    await page.wait_for_selector("div[data-e2e='user-post-item']")
-    await asyncio.sleep(random.uniform(1, 3))
-    first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
-    await asyncio.sleep(random.uniform(1, 3))
+    if content_type==1:
+        await page.wait_for_selector("div[data-e2e='user-post-item']")
+        await asyncio.sleep(random.uniform(1, 3))
+        first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
+        await asyncio.sleep(random.uniform(1, 3))
 
-    if not first_video:
-        return page
-    await first_video.click()
-    await asyncio.sleep(random.uniform(1, 3))
+        if not first_video:
+            return page
+        await first_video.click()
+        await asyncio.sleep(random.uniform(1, 3))
+    else:
+        await page.wait_for_selector("div[data-e2e='challenge-item-list']")
+        await asyncio.sleep(random.uniform(1, 3))
+        first_video = await page.query_selector("div[data-e2e='challenge-item'] a")
+        await asyncio.sleep(random.uniform(1, 3))
+
+        if not first_video:
+            return page
+        await first_video.click()
+        await asyncio.sleep(random.uniform(1, 3))
     watched = {}
-    
-    for i in range(9):
+    for i in range(0, videos_cant):
         video_id = page.url
-
-        for i in range(10):
+        sc_com = True
+        len_watched = len(watched)
+        try_count = 0
+        scroll_count = 0
+        while sc_com:
+        #for j in range(10):
+            cine_view = False
             elem_com_icon = await page.query_selector_all("button[aria-label*='comentario']")
             
             if elem_com_icon:
                 elem_com_icon.click()
                 await asyncio.sleep(random.uniform(1, 5))
+                cine_view = True
             elements = await page.query_selector_all("div[data-comment-ui-enabled='true']")
             
             if not elements:
-                elements = await page.query_selector_all("div[data-testid='cinema-side-panel-comment-row']")
+                elements = await page.query_selector_all("div[class*='DivCommentObjectWrapper']")
             
             for el in elements:
                 try:
                     cid = await el.get_attribute("id")
-
+                    
                     if not cid or cid in watched:
                         continue
-                    user = await el.query_selector("[data-e2e='comment-username-1']")
-                    text = await el.query_selector("[data-e2e='comment-level-1']")
-                    watched[cid] = {
-                        "user": await user.inner_text(),
-                        "comment": await text.inner_text(),
-                        "video_id":  video_id
-                    }
 
-                except Exception:
+                    if cine_view:
+                        user = await el.query_selector("[class*='DivAvatarWrapper'] a")
+                        text = await el.query_selector("[data-e2e='comment-level-1'] span")
+                        date = await el.query_selector("[class*='DivCommentSubContentWrapper'] span")
+                        likes = await el.query_selector("[class*='DivLikeContainer'] span")
+                    
+                    else:
+                        user = await el.query_selector("[data-e2e='comment-avatar-1']")
+                        text = await el.query_selector("[data-e2e='comment-level-1']")
+                        date = await el.query_selector("[data-e2e='comment-time-1']")
+                        likes = await el.query_selector("[data-e2e='comment-like-count']")
+                    img = await el.query_selector("[data-e2e='comment-thumbnail']")
+                    watched[cid] = {
+                    "user": await user.get_attribute("href"),
+                    "comment": await text.inner_text(),
+                    "date": await date.inner_text(),
+                    "likes": await likes.inner_text() if likes else "",
+                    "media": await img.get_attribute("src") if img else "",
+                    "video_id":  video_id
+                    }
+                    transf_date(await date.inner_text())
+
+                except Exception as e:
+                    print(e)
                     continue
             await asyncio.sleep(5, 10)
-
+            
+            
             if elements:
-
                 try:
                     await elements[-1].scroll_into_view_if_needed()
-
+                    
                 except:
-                    continue        
+                    continue
+
+            if len_watched == len(watched):
+                try_count += 1
+                
+                if try_count > 5:
+                    sc_com = False
+            
+            else:
+                try_count = 0
+                len_watched = len(watched)
+            
+            if scroll_count > 3:
+                sc_com = False
+            scroll_count += 1
         elem_com = await page.query_selector("button[data-e2e='arrow-right']")
         await elem_com.click()
         await asyncio.sleep(random.uniform(5, 10))
     comments = list(watched.values())
     return page
+
+def transf_date(date: str):
+    date_t = ""
+    if "d" in date:
+        date_t = datetime.now()- timedelta(days= int(re.search(r"\d+", date).group()))
+        date_t = date_t.strftime("%Y-%m-%d")
+        print(date_t, "1")
+    elif date.count("-") == 1:
+        date_t = f"{datetime.now().year}-{date.split("-")[1]}-{date.split("-")[0]}"
+        print(date_t, "2")
+    elif date.count("-") > 1:
+        date_t = datetime.strptime(date, "%Y-%d-%m").strftime("%Y-%m-%d")
+        print(date_t, "3")
+    else:
+        date_t = datetime.now().strftime("%Y-%m-%d")
+        print(date_t, "4")
+    return date_t
