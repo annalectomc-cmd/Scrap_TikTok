@@ -1,6 +1,5 @@
 import asyncio, os, threading, webbrowser, sys
 from flask import Flask, jsonify, request, send_from_directory
-from scr_driverless import scrape_profile
 from scrapl import scrape_comments
 from flask_cors import CORS
 from flasgger import Swagger
@@ -78,17 +77,14 @@ def install_browser():
 
     if browser_ver():
         return
-    
     try:
         from scrapling.cli import install
         install([], standalone_mode=False)
-
     except Exception as e:
         print("error")
 
 def open_browser():
     webbrowser.open("http://localhost:5000")
-
 
 if __name__ == "__main__":
     #desarrollo
