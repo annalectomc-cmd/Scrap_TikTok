@@ -1,8 +1,16 @@
-import asyncio, os, threading, webbrowser, sys
+import asyncio, os, threading, webbrowser, sys, patchright, subprocess
+
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(
+    os.environ["LOCALAPPDATA"],
+    "ms-playwright"
+)
+
 from flask import Flask, jsonify, request, send_from_directory
 from scrapl import scrape_comments
 from flask_cors import CORS
 from flasgger import Swagger
+from patchright.sync_api import sync_playwright
+
 
 def resource_path(relative):
     base = getattr(sys, "MEIPASS", os.path.abspath("."))
@@ -10,8 +18,8 @@ def resource_path(relative):
 
 app = Flask(__name__
             #despliegue
-            # ,static_folder=resource_path("dist"),
-            # static_url_path=""
+            ,static_folder=resource_path("fe/build"),
+            static_url_path=""
             )
 CORS(app)
 Swagger(app)
@@ -26,10 +34,12 @@ def index():
             description: Mensaje
     """
     #desarrollo
-    if request.method =="GET":
-        return "Bienvenido", 200
+    # if request.method =="GET":
+    #     return "Bienvenido", 200
     #despliegue
-    # return send_from_directory(app.static_folder, "index.html")
+    print(app.static_folder)
+    print(os.path.exists(os.path.join(app.static_folder, "index.html")))
+    return send_from_directory(app.static_folder, "index.html")
     
 @app.route("/comments", methods=["GET"])
 def get_comments():
@@ -62,12 +72,13 @@ def get_comments():
         else:
             return jsonify({"message": "no se encontraron comentarios"}), 500
 #despliegue
-# @app.route("/<path:path>")
-# def serve_react(path):
-#     full = os.path.join(app.static_folder, path)
-#     if os.path.exists(full):
-#         comments = send_from_directory(app.static_folder, path)
-#         return jsonify(comments), 200
+@app.route("/<path:path>")
+def static_proxy(path):
+    file = os.path.join(app.static_folder, path)
+
+    if os.path.exists(file):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
 
 def browser_ver():
     ruta = os.path.join(os.environ.get("USERPROFILE", ""), "AppData", "Local", "ms-playwright")
@@ -86,10 +97,30 @@ def install_browser():
 def open_browser():
     webbrowser.open("http://localhost:5000")
 
+def install_patch():
+    # ruta donde deberían estar los navegadores
+    if getattr(sys, 'frozen', False):
+        # estamos dentro del .exe
+        base = sys._MEIPASS
+    else:
+        import patchright
+        base = os.path.dirname(patchright.__file__)
+
+    chrome = os.path.join(base, "patchright", "driver", "package",
+                          ".local-browsers", "chromium-1223",
+                          "chrome-win64", "chrome.exe")
+
+    if not os.path.exists(chrome):
+        print("Instalando navegadores (solo la primera vez)...")
+        subprocess.run([sys.executable, "-m", "scrapling", "install"],
+                      check=True)
+        print("Listo.")
+
 if __name__ == "__main__":
-    #desarrollo
-    app.run(debug=True)
+    #desarrollo    
+    # app.run(debug=True)
     #despliegue
-    # install_browser()
-    # threading.Timer(1.5, open_browser).start()
-    # app.run(port=5000)
+    install_browser()
+    # install_patch()
+    threading.Timer(1.5, open_browser).start()
+    app.run(port=5000)

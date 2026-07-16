@@ -13,9 +13,8 @@ __pycache__/
 # IDE
 .vscode/
 
-
-tiktok_cookies.json
-
+#build
+fe/
 dist/
 build/
 app.spec
