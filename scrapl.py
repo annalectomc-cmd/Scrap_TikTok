@@ -34,6 +34,7 @@ async def flujo_completo(page: Page):
     global content_type
     global search_content
     comments = []
+    
     await page.set_viewport_size({"width": 1280, "height": 720})
     
     for x in range(50):    
@@ -46,15 +47,7 @@ async def flujo_completo(page: Page):
                 boton = await page.query_selector("div[class*='DivErrorContainer'] button")
                 await boton.hover()
                 await boton.click()
-        else:
-            div_error = await page.query_selector_all("div[class*='DivContainer']:has(h2[data-e2e='search-error-title'])")
-            await asyncio.sleep(random.uniform(0, 1))
-            
-            if div_error:    
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                button = await page.query_selector("div[class*='DivContainer']:has(h2[data-e2e='search-error-title']) button")
-                await button.hover()
-                await button.click()
+        
     
     if content_type==1:
         await page.wait_for_selector("div[data-e2e='user-post-item']")
@@ -74,6 +67,15 @@ async def flujo_completo(page: Page):
         await page.keyboard.type(search_content)
         await page.keyboard.press("Enter")
         await asyncio.sleep(random.uniform(2, 5))
+        for x in range(50):
+            div_error = await page.query_selector_all("div[class*='DivContainer']:has(h2[data-e2e='search-error-title'])")
+            await asyncio.sleep(random.uniform(0, 1))
+            
+            if div_error:    
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                button = await page.query_selector("div[class*='DivContainer']:has(h2[data-e2e='search-error-title']) button")
+                await button.hover()
+                await button.click()
         first_video = await page.query_selector("div[data-e2e='search_top-item'] a")
         await asyncio.sleep(random.uniform(1, 3))
 
