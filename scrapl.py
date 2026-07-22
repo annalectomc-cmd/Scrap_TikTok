@@ -6,10 +6,13 @@ from datetime import datetime, timedelta
 comments = []
 videos_cant = 0
 content_type = 1
+search_content = ""
 
-async def scrape_comments(perfil_url, max_videos=100, type=1):
+async def scrape_comments(perfil_url="", max_videos=100, type=1):
     global videos_cant
     global content_type
+    global search_content
+    search_content = perfil_url 
     content_type = type
     videos_cant = max_videos
     url = ""
@@ -17,7 +20,7 @@ async def scrape_comments(perfil_url, max_videos=100, type=1):
     if type==1:
         url="https://www.tiktok.com/@"+perfil_url
     else:
-        url="https://www.tiktok.com/search/video?q="+perfil_url    
+        url="https://www.tiktok.com"   
     async with AsyncStealthySession(headless=False) as session:     
         page = await session.fetch(
             url,                  #URL
@@ -29,6 +32,7 @@ async def scrape_comments(perfil_url, max_videos=100, type=1):
 async def flujo_completo(page: Page):
     global comments
     global content_type
+    global search_content
     comments = []
     await page.set_viewport_size({"width": 1280, "height": 720})
     
@@ -48,9 +52,9 @@ async def flujo_completo(page: Page):
             
             if div_error:    
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                boton = await page.query_selector("div[class*='DivContainer']:has(h2[data-e2e='search-error-title']) button")
-                await boton.hover()
-                await boton.click()
+                button = await page.query_selector("div[class*='DivContainer']:has(h2[data-e2e='search-error-title']) button")
+                await button.hover()
+                await button.click()
     
     if content_type==1:
         await page.wait_for_selector("div[data-e2e='user-post-item']")
@@ -63,10 +67,14 @@ async def flujo_completo(page: Page):
         await first_video.click()
         await asyncio.sleep(random.uniform(1, 3))
     else:
-        await page.wait_for_selector("div[data-e2e='search_video-item-list']")
+        search_button = await page.wait_for_selector("button[data-e2e='nav-search']")
         await asyncio.sleep(random.uniform(1, 3))
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        first_video = await page.query_selector("div[data-e2e='search_video-item'] a")
+        await search_button.click()
+        await asyncio.sleep(random.uniform(1, 2))
+        await page.keyboard.type(search_content)
+        await page.keyboard.press("Enter")
+        await asyncio.sleep(random.uniform(2, 5))
+        first_video = await page.query_selector("div[data-e2e='search_top-item'] a")
         await asyncio.sleep(random.uniform(1, 3))
 
         if not first_video:
