@@ -49,6 +49,10 @@ def get_comments():
           in: query
           type: integer
           required: true
+        - name: scroll
+          in: query
+          type: integer
+          required: true
     responses:
         200:
             description: Comentarios Obtenidos
@@ -56,7 +60,7 @@ def get_comments():
             description: No se obtuvieron comentarios
     """
     if request.method == "GET":
-        comments = asyncio.run(scrape_comments(request.args.get("profile"), request.args.get("cant", type=int), request.args.get("type", type=int)))
+        comments = asyncio.run(scrape_comments(request.args.get("profile"), request.args.get("cant", type=int), request.args.get("type", type=int),  request.args.get("scroll", type=int)))
         if len(comments)> 0:
             return jsonify(comments), 200
         else:

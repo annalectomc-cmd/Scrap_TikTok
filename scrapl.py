@@ -6,15 +6,18 @@ from datetime import datetime, timedelta
 comments = []
 videos_cant = 0
 content_type = 1
+scrolls = 1
 search_content = ""
 
-async def scrape_comments(perfil_url="", max_videos=100, type=1):
+async def scrape_comments(perfil_url="", max_videos=100, type=1, scroll=10):
     global videos_cant
     global content_type
     global search_content
+    global scrolls
     search_content = perfil_url 
     content_type = type
     videos_cant = max_videos
+    scrolls = scroll
     url = ""
 
     if type==1:
@@ -151,7 +154,7 @@ async def flujo_completo(page: Page):
                 try_count = 0
                 len_watched = len(watched)
             
-            if scroll_count > 10:
+            if scroll_count > scrolls:
                 sc_com = False
             scroll_count += 1
         elem_com = await page.query_selector("button[data-e2e='arrow-right']")
