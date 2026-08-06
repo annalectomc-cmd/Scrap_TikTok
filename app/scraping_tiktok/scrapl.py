@@ -137,7 +137,7 @@ async def flujo_completo(page: Page):
                 except Exception as e:
                     print(e)
                     continue
-            await asyncio.sleep(5, 10)
+            await asyncio.sleep(random.uniform(5, 10))
 
             if elements:
                 try:

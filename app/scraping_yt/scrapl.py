@@ -55,6 +55,10 @@ async def flujo_completo(page: Page):
             return page
         await first_video[1].click()
         await asyncio.sleep(random.uniform(1, 3))
+        elem_com_icon = await page.query_selector("button[aria-label*='comments']")
+
+        if elem_com_icon:
+            await elem_com_icon.click()
     watched = {}
 
     for i in range(0, videos_cant):
@@ -63,82 +67,56 @@ async def flujo_completo(page: Page):
         len_watched = len(watched)
         try_count = 0
         scroll_count = 0
-
-        elem_com_icon = await page.query_selector("button[aria-label*='comments']")
-        async with page.expect_response(
-            lambda r: "browse?prettyPrint=false" in r.url
-        ) as resp_info:
-
-            if elem_com_icon:
-                await elem_com_icon.click()
-
-        response = await resp_info.value
-
-        print(response.url)
-
-        data = await response.json()
-        print(data)
-
-        
-        
         await asyncio.sleep(random.uniform(1, 5))
         
-        
 
-    #     while sc_com:
-    #         elements = await page.query_selector_all("div[data-comment-ui-enabled='true']")
-            
-    #         if not elements:
-    #             elements = await page.query_selector_all("div[class*='DivCommentObjectWrapper']")
-            
-    #         for el in elements:
-    #             try:
-    #                 cid = await el.get_attribute("id")
+        while sc_com:
+            await asyncio.sleep(random.uniform(1, 2))
+            scroll_el = await page.query_selector_all("ytd-comment-thread-renderer[class*='ytd-item-section-renderer']")
+            try:
+                async with page.expect_response(
+                lambda r: "browse?prettyPrint=false" in r.url
+                ) as response_info:
+                    await scroll_el[-1].scroll_into_view_if_needed()
+                response = await response_info.value
+                data = await response.json()
+                comments_el = get_comments(data)
+                print(len(comments_el))
+            except:
+                comments_el = []
 
-                    
-    #                 if not cid or cid in watched:
-    #                     continue
+            for c in comments_el:
+                cid = c["commentEntityPayload"]["properties"]["commentId"]
 
-    #                 user = await el.query_selector("[data-e2e='comment-avatar-1']")
-    #                 text = await el.query_selector("[data-e2e='comment-level-1']")
-    #                 date = await el.query_selector("[data-e2e='comment-time-1']")
-    #                 likes = await el.query_selector("[data-e2e='comment-like-count']")
-    #                 img = await el.query_selector("[data-e2e='comment-thumbnail']")
-    #                 watched[cid] = {
-    #                 "user": await user.get_attribute("href"),
-    #                 "comment": await text.inner_text(),
-    #                 "date": transf_date(await date.inner_text()),
-    #                 "likes": await likes.inner_text() if likes else "",
-    #                 "media": await img.get_attribute("src") if img else "",
-    #                 "video_id":  video_id
-    #                 }
-    #             except Exception as e:
-    #                 print(e)
-    #                 continue
-    #         await asyncio.sleep(5, 10)
+                if not cid or cid in watched:
+                    continue
+                watched[cid] = {
+                "user": c["commentEntityPayload"]["properties"]["authorButtonA11y"],
+                "comment": c["commentEntityPayload"]["properties"]["content"]["content"],
+                "date": c["commentEntityPayload"]["properties"]["publishedTime"],
+                "likes": c["commentEntityPayload"]["toolbar"]["likeCountLiked"],
+                "media": "",
+                "video_id":  video_id
+                }
 
-    #         if elements:
-    #             try:
-    #                 await elements[-1].scroll_into_view_if_needed()                    
-    #             except:
-    #                 continue
-
-    #         if len_watched == len(watched):
-    #             try_count += 1
+                print(watched[cid])
+            if len_watched == len(watched):
+                try_count += 1
                 
-    #             if try_count > 5:
-    #                 sc_com = False
-    #         else:
-    #             try_count = 0
-    #             len_watched = len(watched)
+                if try_count > 5:
+                    sc_com = False
+            else:
+                try_count = 0
+                len_watched = len(watched)
             
-    #         if scroll_count > scrolls:
-    #             sc_com = False
-    #         scroll_count += 1
-    #     elem_com = await page.query_selector("button[data-e2e='arrow-right']")
-    #     await elem_com.click()
-    #     await asyncio.sleep(random.uniform(5, 10))
-    # comments = list(watched.values())
+            if scroll_count > scrolls:
+                sc_com = False
+            
+            scroll_count += 1
+        elem_com = await page.query_selector("button[aria-label='Next video']")
+        await elem_com.click()
+        await asyncio.sleep(random.uniform(5, 10))
+    comments = list(watched.values())
     return page
 
 def transf_date(date: str):
@@ -160,3 +138,27 @@ def transf_date(date: str):
     else:
         date_t = datetime.now().strftime("%Y-%m-%d")
     return date_t
+
+async def handle_request(request):
+            if "browse?prettyPrint=false" in request.url:
+                print(request.method)
+                print(request.url)
+                print(request.post_data)
+
+def get_comments(obj):
+    comments = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if "commentEntityPayload" in node:
+                comments.append(node)
+
+            for value in node.values():
+                walk(value)
+
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(obj)
+    return comments
