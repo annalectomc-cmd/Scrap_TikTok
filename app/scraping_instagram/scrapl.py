@@ -14,171 +14,255 @@ async def scrape_comments(perfil_url="", max_videos=100, type=1, scroll=10):
     global content_type
     global search_content
     global scrolls
+    global comments
+
     search_content = perfil_url 
     content_type = type
     videos_cant = max_videos
     scrolls = scroll
-    url = ""
+    comments = []
 
-    if type==1:
-        url="https://www.tiktok.com/@"+perfil_url
+    clean_profile = perfil_url.strip().strip("/")
+    if clean_profile.startswith("http://") or clean_profile.startswith("https://"):
+        url = clean_profile
+    elif type == 1:
+        url = f"https://www.instagram.com/{clean_profile}/"
     else:
-        url="https://www.tiktok.com"   
+        url = f"https://www.instagram.com/explore/tags/{clean_profile}/"
+
     async with AsyncStealthySession(headless=False) as session:     
         page = await session.fetch(
-            url,                  #URL
+            url,                  # URL
             network_idle=True,
-            page_action=flujo_completo,  # flujo 
+            page_action=flujo_completo,  # callback
         )
         return comments       
+
+async def dismiss_popups(page: Page):
+    # Cookie banners
+    cookie_buttons = [
+        "button:has-text('Decline optional cookies')",
+        "button:has-text('Allow all cookies')",
+        "button:has-text('Allow essential and optional cookies')",
+        "button:has-text('Rechazar cookies opcionales')",
+        "button:has-text('Permitir todas las cookies')",
+        "button:has-text('Aceptar todas')",
+        "button:has-text('Aceptar')",
+        "button:has-text('Only allow essential cookies')"
+    ]
+    for sel in cookie_buttons:
+        try:
+            btn = await page.query_selector(sel)
+            if btn and await btn.is_visible():
+                await btn.click()
+                await asyncio.sleep(1)
+        except Exception:
+            pass
+
+    # Login / signup modal close buttons
+    close_selectors = [
+        "svg[aria-label='Close']",
+        "svg[aria-label='Cerrar']",
+        "button:has-text('Not Now')",
+        "button:has-text('Ahora no')",
+        "div[role='dialog'] button:has-text('Not Now')",
+        "div[role='dialog'] svg[aria-label='Close']"
+    ]
+    for sel in close_selectors:
+        try:
+            btn = await page.query_selector(sel)
+            if btn and await btn.is_visible():
+                await btn.click()
+                await asyncio.sleep(1)
+        except Exception:
+            pass
 
 async def flujo_completo(page: Page):
     global comments
     global content_type
     global search_content
+    global videos_cant
+    global scrolls
+    
     comments = []
-    
     await page.set_viewport_size({"width": 1280, "height": 720})
-    
-    for x in range(50):    
-        if content_type==1:
-            div_error = await page.query_selector_all("div[class*='DivErrorContainer']")
-            await asyncio.sleep(random.uniform(0, 1))
-            
-            if div_error:    
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                boton = await page.query_selector("div[class*='DivErrorContainer'] button")
-                await boton.hover()
-                await boton.click()
-        
-    
-    if content_type==1:
-        await page.wait_for_selector("div[data-e2e='user-post-item']")
-        await asyncio.sleep(random.uniform(1, 3))
-        first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
-        await asyncio.sleep(random.uniform(1, 3))
+    await asyncio.sleep(random.uniform(2, 4))
+    await dismiss_popups(page)
 
-        if not first_video:
-            return page
-        await first_video.click()
-        await asyncio.sleep(random.uniform(1, 3))
-    else:
-        search_button = await page.wait_for_selector("button[data-e2e='nav-search']")
-        await asyncio.sleep(random.uniform(1, 3))
-        await search_button.click()
-        await asyncio.sleep(random.uniform(1, 2))
-        await page.keyboard.type(search_content)
-        await page.keyboard.press("Enter")
-        await asyncio.sleep(random.uniform(2, 5))
-        for x in range(50):
-            div_error = await page.query_selector_all("div[class*='DivContainer']:has(h2[data-e2e='search-error-title'])")
-            await asyncio.sleep(random.uniform(0, 1))
-            
-            if div_error:    
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                button = await page.query_selector("div[class*='DivContainer']:has(h2[data-e2e='search-error-title']) button")
-                await button.hover()
-                await button.click()
-        first_video = await page.query_selector("div[data-e2e='search_top-item'] a")
-        await asyncio.sleep(random.uniform(1, 3))
+    # Scroll down slightly to ensure post grids load
+    await page.evaluate("window.scrollTo(0, 400)")
+    await asyncio.sleep(random.uniform(1.5, 3.0))
+    await dismiss_popups(page)
 
-        if not first_video:
-            return page
-        await first_video.click()
-        await asyncio.sleep(random.uniform(1, 3))
+    post_links = await page.query_selector_all("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/']")
+    if not post_links:
+        try:
+            await page.wait_for_selector("a[href*='/p/'], a[href*='/reel/']", timeout=5000)
+            post_links = await page.query_selector_all("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/']")
+        except Exception:
+            pass
+
+    if not post_links:
+        return page
+
+    # Click on the first post link
+    try:
+        await post_links[0].click()
+    except Exception:
+        first_href = await post_links[0].get_attribute("href")
+        if first_href:
+            target_url = f"https://www.instagram.com{first_href}" if first_href.startswith("/") else first_href
+            await page.goto(target_url)
+            
+    await asyncio.sleep(random.uniform(2, 4))
     watched = {}
 
     for i in range(0, videos_cant):
+        await dismiss_popups(page)
         video_id = page.url
         sc_com = True
         len_watched = len(watched)
         try_count = 0
         scroll_count = 0
+
         while sc_com:
-            cine_view = False
-            elem_com_icon = await page.query_selector_all("button[aria-label*='comentario']")
+            await dismiss_popups(page)
             
-            if elem_com_icon:
-                elem_com_icon.click()
-                await asyncio.sleep(random.uniform(1, 5))
-                cine_view = True
-            elements = await page.query_selector_all("div[data-comment-ui-enabled='true']")
+            comment_elements = await page.query_selector_all(
+                "div[role='dialog'] ul li, ul._a9ym > div > li, ul > div > li, div._a9zs, div[role='main'] ul li"
+            )
             
-            if not elements:
-                elements = await page.query_selector_all("div[class*='DivCommentObjectWrapper']")
+            if not comment_elements:
+                comment_elements = await page.query_selector_all("ul li:has(span)")
             
-            for el in elements:
+            for el in comment_elements:
                 try:
-                    cid = await el.get_attribute("id")
+                    user_el = await el.query_selector("a[href*='/']")
+                    text_el = await el.query_selector("span._ap3a, div._a9zs, span[dir='auto']")
+                    if not text_el:
+                        text_el = await el.query_selector("span")
                     
-                    if not cid or cid in watched:
+                    if not user_el or not text_el:
+                        continue
+                    
+                    user_href = await user_el.get_attribute("href") or ""
+                    comment_text = await text_el.inner_text() or ""
+                    
+                    if not comment_text.strip() or "Reply" in comment_text or "Responder" in comment_text:
+                        # Skip UI action words if captured alone
+                        if comment_text.strip() in ["Reply", "Responder", "Like", "Me gusta"]:
+                            continue
+
+                    cid = f"{user_href}_{comment_text[:25]}"
+                    if cid in watched:
                         continue
 
-                    if cine_view:
-                        user = await el.query_selector("[class*='DivAvatarWrapper'] a")
-                        text = await el.query_selector("[data-e2e='comment-level-1'] span")
-                        date = await el.query_selector("[class*='DivCommentSubContentWrapper'] span")
-                        likes = await el.query_selector("[class*='DivLikeContainer'] span")
+                    date_el = await el.query_selector("time")
+                    raw_date = ""
+                    if date_el:
+                        raw_date = await date_el.get_attribute("datetime") or await date_el.inner_text()
                     
-                    else:
-                        user = await el.query_selector("[data-e2e='comment-avatar-1']")
-                        text = await el.query_selector("[data-e2e='comment-level-1']")
-                        date = await el.query_selector("[data-e2e='comment-time-1']")
-                        likes = await el.query_selector("[data-e2e='comment-like-count']")
-                    img = await el.query_selector("[data-e2e='comment-thumbnail']")
+                    likes_el = await el.query_selector("span:has-text('like'), button span")
+                    likes_text = await likes_el.inner_text() if likes_el else ""
+                    
+                    img_el = await el.query_selector("img")
+                    img_src = await img_el.get_attribute("src") if img_el else ""
+
+                    full_user_url = f"https://www.instagram.com{user_href}" if user_href.startswith("/") else user_href
+
                     watched[cid] = {
-                    "user": await user.get_attribute("href"),
-                    "comment": await text.inner_text(),
-                    "date": transf_date(await date.inner_text()),
-                    "likes": await likes.inner_text() if likes else "",
-                    "media": await img.get_attribute("src") if img else "",
-                    "video_id":  video_id
+                        "user": full_user_url,
+                        "comment": comment_text,
+                        "date": transf_date(raw_date),
+                        "likes": likes_text,
+                        "media": img_src,
+                        "video_id": video_id
                     }
                 except Exception as e:
-                    print(e)
+                    print(f"Error parsing comment item: {e}")
                     continue
-            await asyncio.sleep(5, 10)
 
-            if elements:
+            if comment_elements:
                 try:
-                    await elements[-1].scroll_into_view_if_needed()                    
-                except:
-                    continue
+                    await comment_elements[-1].scroll_into_view_if_needed()
+                except Exception:
+                    pass
 
             if len_watched == len(watched):
                 try_count += 1
-                
-                if try_count > 5:
+                if try_count > 3:
                     sc_com = False
             else:
                 try_count = 0
                 len_watched = len(watched)
-            
-            if scroll_count > scrolls:
+
+            if scroll_count >= scrolls:
                 sc_com = False
+                
             scroll_count += 1
-        elem_com = await page.query_selector("button[data-e2e='arrow-right']")
-        await elem_com.click()
-        await asyncio.sleep(random.uniform(5, 10))
+            await asyncio.sleep(random.uniform(1.5, 2.5))
+
+        # Move to next post
+        next_button = await page.query_selector("svg[aria-label='Next'], svg[aria-label='Siguiente'], a:has(svg[aria-label='Next']), button:has(svg[aria-label='Next'])")
+        if next_button:
+            try:
+                await next_button.click()
+            except Exception:
+                await page.keyboard.press("ArrowRight")
+        else:
+            await page.keyboard.press("ArrowRight")
+        
+        await asyncio.sleep(random.uniform(2.5, 4.0))
+
     comments = list(watched.values())
     return page
 
 def transf_date(date: str):
-    date_t = ""
-    if "d" in date:
-        date_t = datetime.now() - timedelta(days= int(re.search(r"\d+", date).group()))
-        date_t = datetime.strptime(str(date_t).split(" ")[0], "%Y-%m-%d").strftime("%Y-%m-%d")
-    elif date.count("-") == 1:
-        month = date.split("-")[1]
-        day = date.split("-")[0]
+    if not date:
+        return datetime.now().strftime("%Y-%m-%d")
+    date_str = str(date).strip()
+    
+    if "T" in date_str and "-" in date_str:
+        return date_str.split("T")[0]
         
-        if int(month) < 10:
-            month = "0"+month
-        if int(day) < 10:
-            day = "0"+day
-        date_t = f"{datetime.now().year}-{month}-{day}"
-    elif date.count("-") > 1:
-        date_t = datetime.strptime(date, "%Y-%d-%m").strftime("%Y-%m-%d")
-    else:
-        date_t = datetime.now().strftime("%Y-%m-%d")
-    return date_t
+    now = datetime.now()
+    
+    match = re.search(r"(\d+)\s*([s|m|h|d|w|y])", date_str.lower())
+    if match:
+        val = int(match.group(1))
+        unit = match.group(2)
+        if unit == "d":
+            date_t = now - timedelta(days=val)
+        elif unit == "w":
+            date_t = now - timedelta(weeks=val)
+        elif unit == "h":
+            date_t = now - timedelta(hours=val)
+        elif unit == "m":
+            date_t = now - timedelta(minutes=val)
+        elif unit == "y":
+            date_t = now - timedelta(days=365 * val)
+        else:
+            date_t = now
+        return date_t.strftime("%Y-%m-%d")
+        
+    if "d" in date_str or "día" in date_str or "day" in date_str:
+        num = re.search(r"\d+", date_str)
+        if num:
+            date_t = now - timedelta(days=int(num.group()))
+            return date_t.strftime("%Y-%m-%d")
+            
+    if date_str.count("-") == 1:
+        parts = date_str.split("-")
+        day = parts[0].zfill(2)
+        month = parts[1].zfill(2)
+        return f"{now.year}-{month}-{day}"
+    elif date_str.count("-") > 1:
+        try:
+            return datetime.strptime(date_str, "%Y-%d-%m").strftime("%Y-%m-%d")
+        except Exception:
+            try:
+                return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
+            except Exception:
+                pass
+                
+    return now.strftime("%Y-%m-%d")

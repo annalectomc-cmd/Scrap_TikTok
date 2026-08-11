@@ -2,6 +2,7 @@ import asyncio
 from flask import Blueprint, jsonify, request
 from app.scraping_tiktok.scrapl import scrape_comments as scrape_tiktok
 from app.scraping_yt.scrapl import scrape_comments as scrape_yt
+from app.scraping_instagram.scrapl import scrape_comments as scrape_instagram
 
 scrap_bp = Blueprint("scrap", __name__)
 
@@ -43,7 +44,13 @@ def get_comments():
             return jsonify(comments), 200
         else:
             return jsonify({"message": "no se encontraron comentarios"}), 500
-    elif request.args.get("platform", type=int) == 3:
+    elif request.args.get("platform", type=int) == 2:
+            comments = asyncio.run(scrape_instagram(request.args.get("profile"), request.args.get("cant", type=int), request.args.get("type", type=int),  request.args.get("scroll", type=int)))
+            if len(comments)> 0:
+                return jsonify(comments), 200
+            else:
+                return jsonify({"message": "no se encontraron comentarios"}), 500
+    else:
         comments = asyncio.run(scrape_yt(request.args.get("profile"), request.args.get("cant", type=int), request.args.get("type", type=int),  request.args.get("scroll", type=int)))
         if len(comments)> 0:
             return jsonify(comments), 200

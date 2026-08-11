@@ -18,7 +18,11 @@ async def scrape_comments(search_text="", max_videos=1, type=1, scroll=10):
     content_type = type
     videos_cant = max_videos
     scrolls = scroll
-    url = "https://www.youtube.com/results?search_query="+search_text
+    url = ""
+    if type==1:
+        url="https://www.youtube.com/@"+search_text+"/shorts"
+    else:
+        url="https://www.youtube.com/results?search_query="+search_text
    
     async with AsyncStealthySession(headless=False) as session:     
         page = await session.fetch(
@@ -37,28 +41,28 @@ async def flujo_completo(page: Page):
     await page.set_viewport_size({"width": 1280, "height": 720})
     
     
-    if content_type==1:
-        await page.wait_for_selector("div[data-e2e='user-post-item']")
-        await asyncio.sleep(random.uniform(1, 3))
-        first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
-        await asyncio.sleep(random.uniform(1, 3))
+    # if content_type==1:
+    #     await page.wait_for_selector("div[data-e2e='user-post-item']")
+    #     await asyncio.sleep(random.uniform(1, 3))
+    #     first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
+    #     await asyncio.sleep(random.uniform(1, 3))
 
-        if not first_video:
-            return page
-        await first_video.click()
-        await asyncio.sleep(random.uniform(1, 3))
-    else:
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        first_video = await page.query_selector_all("a[href*='/shorts/']")
-        await asyncio.sleep(random.uniform(1, 3))
-        if not first_video:
-            return page
-        await first_video[1].click()
-        await asyncio.sleep(random.uniform(1, 3))
-        elem_com_icon = await page.query_selector("button[aria-label*='comments']")
+    #     if not first_video:
+    #         return page
+    #     await first_video.click()
+    #     await asyncio.sleep(random.uniform(1, 3))
+    # else:
+    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    first_video = await page.query_selector_all("a[href*='/shorts/']")
+    await asyncio.sleep(random.uniform(1, 3))
+    if not first_video:
+        return page
+    await first_video[1].click()
+    await asyncio.sleep(random.uniform(1, 3))
+    elem_com_icon = await page.query_selector("button[aria-label*='comments']")
 
-        if elem_com_icon:
-            await elem_com_icon.click()
+    if elem_com_icon:
+        await elem_com_icon.click()
     watched = {}
 
     for i in range(0, videos_cant):
