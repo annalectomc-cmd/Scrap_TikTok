@@ -9,7 +9,7 @@ def index():
     ---
     responses:
         200:
-            description: Mensaje
+            description: Mensaje de bienvenida
     """
     return jsonify({
         "message": "API de Scraping"

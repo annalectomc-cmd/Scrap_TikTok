@@ -1,7 +1,8 @@
-import asyncio, random, re
+import asyncio, random, re, os
 from playwright.async_api import Page
 from scrapling.fetchers import AsyncStealthySession
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
 comments = []
 videos_cant = 0
@@ -22,15 +23,19 @@ async def scrape_comments(perfil_url="", max_videos=100, type=1, scroll=10):
     scrolls = scroll
     comments = []
 
-    clean_profile = perfil_url.strip().strip("/")
-    if clean_profile.startswith("http://") or clean_profile.startswith("https://"):
-        url = clean_profile
-    elif type == 1:
-        url = f"https://www.instagram.com/{clean_profile}/"
+    if type == 1:
+        url = f"https://www.instagram.com/{perfil_url}/reels"
     else:
-        url = f"https://www.instagram.com/explore/tags/{clean_profile}/"
+        url = f"https://www.instagram.com/explore/search/keyword/?q=%23{perfil_url}"
+    load_dotenv()
+    cookies = [
+        {"name": "sessionid", "value": os.getenv("INSTAGRAM_SESSIONID"), "domain": ".instagram.com", "path": "/"},
+        {"name": "csrftoken", "value": os.getenv("INSTAGRAM_CSRFTOKEN"), "domain": ".instagram.com", "path": "/"},
+        {"name": "ds_user_id", "value": os.getenv("INSTAGRAM_USERID"), "domain": ".instagram.com", "path": "/"},
+    ]
 
-    async with AsyncStealthySession(headless=False) as session:     
+    async with AsyncStealthySession(headless=False) as session:   
+        await session.context.add_cookies(cookies)  
         page = await session.fetch(
             url,                  # URL
             network_idle=True,
@@ -38,44 +43,7 @@ async def scrape_comments(perfil_url="", max_videos=100, type=1, scroll=10):
         )
         return comments       
 
-async def dismiss_popups(page: Page):
-    # Cookie banners
-    cookie_buttons = [
-        "button:has-text('Decline optional cookies')",
-        "button:has-text('Allow all cookies')",
-        "button:has-text('Allow essential and optional cookies')",
-        "button:has-text('Rechazar cookies opcionales')",
-        "button:has-text('Permitir todas las cookies')",
-        "button:has-text('Aceptar todas')",
-        "button:has-text('Aceptar')",
-        "button:has-text('Only allow essential cookies')"
-    ]
-    for sel in cookie_buttons:
-        try:
-            btn = await page.query_selector(sel)
-            if btn and await btn.is_visible():
-                await btn.click()
-                await asyncio.sleep(1)
-        except Exception:
-            pass
 
-    # Login / signup modal close buttons
-    close_selectors = [
-        "svg[aria-label='Close']",
-        "svg[aria-label='Cerrar']",
-        "button:has-text('Not Now')",
-        "button:has-text('Ahora no')",
-        "div[role='dialog'] button:has-text('Not Now')",
-        "div[role='dialog'] svg[aria-label='Close']"
-    ]
-    for sel in close_selectors:
-        try:
-            btn = await page.query_selector(sel)
-            if btn and await btn.is_visible():
-                await btn.click()
-                await asyncio.sleep(1)
-        except Exception:
-            pass
 
 async def flujo_completo(page: Page):
     global comments
@@ -85,137 +53,135 @@ async def flujo_completo(page: Page):
     global scrolls
     
     comments = []
+    watched = {}
+    # Interceptamos las respuestas de red para extraer comentarios directamente de los JSON de YouTube
+    async def handle_response(response):
+        if "comments/?" in response.url:
+            try:
+                data = await response.json()
+                extracted = data.get("comments", {})
+                
+                for c in extracted:
+                    cid = c.get("pk")
+                    print(cid)
+                    if cid and cid not in watched:
+                        watched[cid] = {
+                            "user": c.get("user", {}).get("username", ""),
+                            "comment": c.get("text", ""),
+                            "date": datetime.fromtimestamp(c.get("created_at", "")).strftime("%Y-%m-%d"),
+                            "likes": c.get("comment_like_count", ""),
+                            "media": "",
+                            "video_id": page.url
+                        }
+                        print(watched[cid])
+                                      
+            except Exception as e:
+                pass
+
+    page.on("response", handle_response)
     await page.set_viewport_size({"width": 1280, "height": 720})
     await asyncio.sleep(random.uniform(2, 4))
-    await dismiss_popups(page)
+    if content_type == 1:
+        post_links = await page.query_selector_all("a[href*='/reel/']")
+        if not post_links:
+            try:
+                await page.wait_for_selector("a[href*='/reel/']", timeout=5000)
+                post_links = await page.query_selector_all("a[href*='/reel/']")
+            except Exception:
+                pass
 
-    # Scroll down slightly to ensure post grids load
-    await page.evaluate("window.scrollTo(0, 400)")
-    await asyncio.sleep(random.uniform(1.5, 3.0))
-    await dismiss_popups(page)
+        if not post_links:
+            return page
 
-    post_links = await page.query_selector_all("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/']")
-    if not post_links:
+        # Click on the first post link
         try:
-            await page.wait_for_selector("a[href*='/p/'], a[href*='/reel/']", timeout=5000)
-            post_links = await page.query_selector_all("a[href*='/p/'], a[href*='/reel/'], a[href*='/reels/']")
+            await post_links[1].click()
         except Exception:
-            pass
+            first_href = await post_links[1].get_attribute("href")
+            if first_href:
+                target_url = f"https://www.instagram.com/{first_href}" if first_href.startswith("/") else first_href
+                await page.goto(target_url)
+                
+        await asyncio.sleep(random.uniform(2, 4))
+    else:
+        post_links = await page.query_selector_all("a[href*='/p/']")
+        if not post_links:
+            try:
+                await page.wait_for_selector("a[href*='/p/']", timeout=5000)
+                post_links = await page.query_selector_all("a[href*='/p/']")
+            except Exception:
+                pass
 
-    if not post_links:
-        return page
+        if not post_links:
+            return page
 
-    # Click on the first post link
-    try:
-        await post_links[0].click()
-    except Exception:
-        first_href = await post_links[0].get_attribute("href")
-        if first_href:
-            target_url = f"https://www.instagram.com{first_href}" if first_href.startswith("/") else first_href
-            await page.goto(target_url)
-            
-    await asyncio.sleep(random.uniform(2, 4))
-    watched = {}
+        # Click on the first post link
+        try:
+            await post_links[0].click()
+        except Exception:
+            first_href = await post_links[0].get_attribute("href")
+            if first_href:
+                target_url = f"https://www.instagram.com/{first_href}" if first_href.startswith("/") else first_href
+                await page.goto(target_url)
+                
+        await asyncio.sleep(random.uniform(2, 4))
 
     for i in range(0, videos_cant):
-        await dismiss_popups(page)
-        video_id = page.url
+        
         sc_com = True
         len_watched = len(watched)
         try_count = 0
         scroll_count = 0
 
         while sc_com:
-            await dismiss_popups(page)
-            
-            comment_elements = await page.query_selector_all(
-                "div[role='dialog'] ul li, ul._a9ym > div > li, ul > div > li, div._a9zs, div[role='main'] ul li"
-            )
-            
-            if not comment_elements:
-                comment_elements = await page.query_selector_all("ul li:has(span)")
-            
-            for el in comment_elements:
+            await asyncio.sleep(random.uniform(1.5, 2.5))
+                        
+            # Scroll en el contenedor
+            scroll_el = await page.query_selector_all("li:has(div > button)")
+            if scroll_el:
                 try:
-                    user_el = await el.query_selector("a[href*='/']")
-                    text_el = await el.query_selector("span._ap3a, div._a9zs, span[dir='auto']")
-                    if not text_el:
-                        text_el = await el.query_selector("span")
-                    
-                    if not user_el or not text_el:
-                        continue
-                    
-                    user_href = await user_el.get_attribute("href") or ""
-                    comment_text = await text_el.inner_text() or ""
-                    
-                    if not comment_text.strip() or "Reply" in comment_text or "Responder" in comment_text:
-                        # Skip UI action words if captured alone
-                        if comment_text.strip() in ["Reply", "Responder", "Like", "Me gusta"]:
-                            continue
-
-                    cid = f"{user_href}_{comment_text[:25]}"
-                    if cid in watched:
-                        continue
-
-                    date_el = await el.query_selector("time")
-                    raw_date = ""
-                    if date_el:
-                        raw_date = await date_el.get_attribute("datetime") or await date_el.inner_text()
-                    
-                    likes_el = await el.query_selector("span:has-text('like'), button span")
-                    likes_text = await likes_el.inner_text() if likes_el else ""
-                    
-                    img_el = await el.query_selector("img")
-                    img_src = await img_el.get_attribute("src") if img_el else ""
-
-                    full_user_url = f"https://www.instagram.com{user_href}" if user_href.startswith("/") else user_href
-
-                    watched[cid] = {
-                        "user": full_user_url,
-                        "comment": comment_text,
-                        "date": transf_date(raw_date),
-                        "likes": likes_text,
-                        "media": img_src,
-                        "video_id": video_id
-                    }
-                except Exception as e:
-                    print(f"Error parsing comment item: {e}")
-                    continue
-
-            if comment_elements:
-                try:
-                    await comment_elements[-1].scroll_into_view_if_needed()
+                    await asyncio.sleep(random.uniform(5, 10))
+                    await scroll_el[-1].scroll_into_view_if_needed()
+                    await asyncio.sleep(random.uniform(1, 2))
+                    await scroll_el[-1].click()
                 except Exception:
                     pass
-
-            if len_watched == len(watched):
-                try_count += 1
-                if try_count > 3:
-                    sc_com = False
-            else:
-                try_count = 0
-                len_watched = len(watched)
-
-            if scroll_count >= scrolls:
-                sc_com = False
-                
+            
+            # if len_watched == len(watched):
+            #     try_count += 1
+            #     if try_count > 5:
+            #         sc_com = False
+            # else:
+            #     try_count = 0
+            #     len_watched = len(watched)
+            
             scroll_count += 1
-            await asyncio.sleep(random.uniform(1.5, 2.5))
 
-        # Move to next post
-        next_button = await page.query_selector("svg[aria-label='Next'], svg[aria-label='Siguiente'], a:has(svg[aria-label='Next']), button:has(svg[aria-label='Next'])")
-        if next_button:
-            try:
-                await next_button.click()
-            except Exception:
-                await page.keyboard.press("ArrowRight")
-        else:
-            await page.keyboard.press("ArrowRight")
-        
-        await asyncio.sleep(random.uniform(2.5, 4.0))
+            if scroll_count >= scrolls-1:
+                sc_com = False
+            
+        # Siguiente video
+        next_button = await page.query_selector('button:has(svg[aria-label*="ext"])')
+        await next_button.click()
+        await asyncio.sleep(random.uniform(3, 5))
 
     comments = list(watched.values())
     return page
+
+
+def get_comments_from_json(obj):
+    found = []
+    def walk(node):
+        if isinstance(node, dict):
+            if "comments" in node:
+                found.append(node)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(obj)
+    return found
 
 def transf_date(date: str):
     if not date:
@@ -265,4 +231,4 @@ def transf_date(date: str):
             except Exception:
                 pass
                 
-    return now.strftime("%Y-%m-%d")
+    return now.strftime("%Y-%m-%d")

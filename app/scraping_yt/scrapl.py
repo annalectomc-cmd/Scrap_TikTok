@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 from playwright.async_api import Page
 from scrapling.fetchers import AsyncStealthySession
+from dateutil.relativedelta import relativedelta
 
 comments = []
 videos_cant = 0
@@ -57,7 +58,7 @@ async def flujo_completo(page: Page):
                         watched[cid] = {
                             "user": props.get("authorButtonA11y", ""),
                             "comment": props.get("content", {}).get("content", ""),
-                            "date": props.get("publishedTime", ""),
+                            "date": transf_date(props.get("publishedTime", "")),
                             "likes": c.get("toolbar", {}).get("likeCountLiked", "0"),
                             "media": "",
                             "video_id": page.url
@@ -145,3 +146,18 @@ def get_comments_from_json(obj):
                 walk(item)
     walk(obj)
     return found
+
+def transf_date(date: str):
+    date_t = ""
+    if "d" in date:
+        date_t = datetime.now() - timedelta(days= int(re.search(r"\d+", date).group()))
+        date_t = datetime.strptime(str(date_t).split(" ")[0], "%Y-%m-%d").strftime("%Y-%m-%d")
+    elif "w" in date:
+       date_t = datetime.now() - timedelta(weeks= int(re.search(r"\d+", date).group()))
+       date_t = datetime.strptime(str(date_t).split(" ")[0], "%Y-%m-%d").strftime("%Y-%m-%d")
+    elif  "m" in date:
+        date_t = datetime.now() - relativedelta(months=value)
+        date_t = datetime.strptime(str(date_t).split(" ")[0], "%Y-%m-%d").strftime("%Y-%m-%d")
+    else:
+        date_t = datetime.now().strftime("%Y-%m-%d")
+    return date_t
