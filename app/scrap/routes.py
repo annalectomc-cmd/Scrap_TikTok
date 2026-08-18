@@ -1,8 +1,6 @@
-import asyncio
 from flask import Blueprint, jsonify, request
-from app.scraping_tiktok.scrapl import scrape_comments as scrape_tiktok
-from app.scraping_yt.scrapl import scrape_comments as scrape_yt
-from app.scraping_instagram.scrapl import scrape_comments as scrape_instagram
+from app.scrap.service import ScrapingService
+
 
 scrap_bp = Blueprint("scrap", __name__)
 
@@ -38,21 +36,63 @@ def get_comments():
         500:
             description: No se obtuvieron comentarios
     """
-    if request.args.get("platform", type=int) == 1:
-        comments = asyncio.run(scrape_tiktok(request.args.get("profile"), request.args.get("cant", type=int), request.args.get("type", type=int),  request.args.get("scroll", type=int)))
-        if len(comments)> 0:
-            return jsonify(comments), 200
-        else:
-            return jsonify({"message": "no se encontraron comentarios"}), 500
-    elif request.args.get("platform", type=int) == 2:
-            comments = asyncio.run(scrape_instagram(request.args.get("profile"), request.args.get("cant", type=int), request.args.get("type", type=int),  request.args.get("scroll", type=int)))
-            if len(comments)> 0:
-                return jsonify(comments), 200
-            else:
-                return jsonify({"message": "no se encontraron comentarios"}), 500
-    else:
-        comments = asyncio.run(scrape_yt(request.args.get("profile"), request.args.get("cant", type=int), request.args.get("type", type=int),  request.args.get("scroll", type=int)))
-        if len(comments)> 0:
-            return jsonify(comments), 200
-        else:
-            return jsonify({"message": "no se encontraron comentarios"}), 500
+    platform = request.args.get("platform", type=int)
+    profile = request.args.get("profile", type=str)
+    cant = request.args.get("cant", type=int)
+    content_type = request.args.get("type", type=int)
+    scroll = request.args.get("scroll", type=int)
+
+    # Validar parámetros obligatorios
+    missing = []
+
+    if platform is None:
+        missing.append("platform")
+
+    if not profile:
+        missing.append("profile")
+
+    if cant is None:
+        missing.append("cant")
+
+    if content_type is None:
+        missing.append("type")
+
+    if scroll is None:
+        missing.append("scroll")
+
+    if missing:
+        return jsonify({
+            "message": "Faltan parámetros obligatorios",
+            "parameters": missing
+        }), 400
+
+    # Validar valores
+    if platform not in [1, 2, 3]:
+        return jsonify({
+            "message": "platform debe ser 1, 2 o 3"
+        }), 400
+
+    if cant <= 0:
+        return jsonify({
+            "message": "cant debe ser mayor que 0"
+        }), 400
+
+    if content_type not in [1, 2]:
+        return jsonify({
+            "message": "type debe ser 1 o 2"
+        }), 400
+
+    if scroll <= 0:
+        return jsonify({
+            "message": "scroll debe ser mayor que 0"
+        }), 400
+    
+    result = ScrapingService.scrape(
+        platform=platform,
+        profile=profile,
+        cant=cant,
+        content_type=content_type,
+        scroll=scroll
+    )
+
+    return jsonify(result), 200

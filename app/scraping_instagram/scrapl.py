@@ -52,7 +52,6 @@ async def flujo_completo(page: Page):
     global videos_cant
     global scrolls
     
-    comments = []
     watched = {}
     # Interceptamos las respuestas de red para extraer comentarios directamente de los JSON de YouTube
     async def handle_response(response):
@@ -166,6 +165,7 @@ async def flujo_completo(page: Page):
         await asyncio.sleep(random.uniform(3, 5))
 
     comments = list(watched.values())
+    print(comments)
     return page
 
 
