@@ -1,27 +1,12 @@
 import asyncio, random, re, os
+from functools import partial
 from playwright.async_api import Page
 from scrapling.fetchers import AsyncStealthySession
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-comments = []
-videos_cant = 0
-content_type = 1
-scrolls = 1
-search_content = ""
-
 async def scrape_comments(perfil_url="", max_videos=100, type=1, scroll=10):
-    global videos_cant
-    global content_type
-    global search_content
-    global scrolls
-    global comments
-
-    search_content = perfil_url 
-    content_type = type
-    videos_cant = max_videos
-    scrolls = scroll
-    comments = []
+    watched = {}
 
     if type == 1:
         url = f"https://www.instagram.com/{perfil_url}/reels"
@@ -36,23 +21,22 @@ async def scrape_comments(perfil_url="", max_videos=100, type=1, scroll=10):
 
     async with AsyncStealthySession(headless=False) as session:   
         await session.context.add_cookies(cookies)  
-        page = await session.fetch(
+        await session.fetch(
             url,                  # URL
             network_idle=True,
-            page_action=flujo_completo,  # callback
+            page_action=partial(
+                flujo_completo,
+                content_type=type,
+                videos_cant=max_videos,
+                scrolls=scroll,
+                watched=watched,
+            ),
         )
-        return comments       
+        return list(watched.values())
 
 
 
-async def flujo_completo(page: Page):
-    global comments
-    global content_type
-    global search_content
-    global videos_cant
-    global scrolls
-    
-    watched = {}
+async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watched):
     # Interceptamos las respuestas de red para extraer comentarios directamente de los JSON de YouTube
     async def handle_response(response):
         if "comments/?" in response.url:
@@ -96,10 +80,7 @@ async def flujo_completo(page: Page):
         try:
             await post_links[1].click()
         except Exception:
-            first_href = await post_links[1].get_attribute("href")
-            if first_href:
-                target_url = f"https://www.instagram.com/{first_href}" if first_href.startswith("/") else first_href
-                await page.goto(target_url)
+            return page
                 
         await asyncio.sleep(random.uniform(2, 4))
     else:
@@ -118,14 +99,11 @@ async def flujo_completo(page: Page):
         try:
             await post_links[0].click()
         except Exception:
-            first_href = await post_links[0].get_attribute("href")
-            if first_href:
-                target_url = f"https://www.instagram.com/{first_href}" if first_href.startswith("/") else first_href
-                await page.goto(target_url)
+            return page
                 
         await asyncio.sleep(random.uniform(2, 4))
 
-    for i in range(0, videos_cant):
+    for _ in range(videos_cant):
         
         sc_com = True
         len_watched = len(watched)
@@ -143,6 +121,7 @@ async def flujo_completo(page: Page):
                     await scroll_el[-1].scroll_into_view_if_needed()
                     await asyncio.sleep(random.uniform(1, 2))
                     await scroll_el[-1].click()
+                    await asyncio.sleep(random.uniform(2, 4))
                 except Exception:
                     pass
             
@@ -164,8 +143,6 @@ async def flujo_completo(page: Page):
         await next_button.click()
         await asyncio.sleep(random.uniform(3, 5))
 
-    comments = list(watched.values())
-    print(comments)
     return page
 
 

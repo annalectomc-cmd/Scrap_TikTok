@@ -1,36 +1,67 @@
+import uuid
+from app.extensions.firebase import get_firestore
 
-# from firebase_admin import firestore
-
-# db = firestore.client()
 
 class ScrapingRepository:
 
     @staticmethod
-    def save_comments(comments):
-        
-        print("save")
+    def _get_db():
+        return get_firestore()
 
-        # batch = db.batch()
+    @classmethod
+    def save_comments(cls, comments, project_id=None):
+        if not comments:
+            return 0
 
-        # project_ref = (
-        #     db.collection("scraping_projects")
-        # )
+        db = cls._get_db()
 
-        # for comment in comments:
+        if project_id:
+            comments_ref = (
+                db.collection("scraping_projects")
+                .document(str(project_id))
+                .collection("comments")
+            )
+        else:
+            comments_ref = db.collection("comments")
 
-        #     comment_id = str(
-        #         comment.get("comment_id")
-        #     )
+        # Firestore allows up to 500 operations per batch
+        batch_size = 500
+        total_saved = 0
 
-        #     comment_ref = (
-        #         project_ref
-        #         .collection("comments")
-        #         .document(comment_id)
-        #     )
+        for i in range(0, len(comments), batch_size):
+            chunk = comments[i:i + batch_size]
+            batch = db.batch()
 
-        #     batch.set(
-        #         comment_ref,
-        #         comment
-        #     )
+            for comment in chunk:
+                comment_id = str(
+                    comment.get("comment_id")
+                    or comment.get("cid")
+                    or comment.get("id")
+                    or uuid.uuid4().hex
+                )
 
-        # batch.commit()
+                comment_ref = comments_ref.document(comment_id)
+                batch.set(comment_ref, comment, merge=True)
+
+            batch.commit()
+            total_saved += len(chunk)
+
+        print(f"Successfully saved {total_saved} comments to Firestore.")
+        return total_saved
+
+    @classmethod
+    def get_comments(cls, project_id=None, limit=100):
+        db = cls._get_db()
+
+        if project_id:
+            query = (
+                db.collection("scraping_projects")
+                .document(str(project_id))
+                .collection("comments")
+                .limit(limit)
+            )
+        else:
+            query = db.collection("comments").limit(limit)
+
+        docs = query.stream()
+        return [doc.to_dict() for doc in docs]

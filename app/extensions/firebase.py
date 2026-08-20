@@ -1,16 +1,20 @@
 import firebase_admin
-from firebase_admin import credentials
+from firebase_admin import credentials, firestore
 
 _initialized = False
 
 def init_firebase():
 
-    global _initialized
+    if not firebase_admin._apps:
 
-    if not _initialized:
-
-        cred = credentials.Certificate("scraping-93adf-firebase-adminsdk-fbsvc-7e36404fe6.json")
+        cred = credentials.Certificate(
+            "scraping-93adf-firebase-adminsdk-fbsvc-7e36404fe6.json"
+        )
 
         firebase_admin.initialize_app(cred)
 
-        _initialized = True
+
+def get_firestore():
+    if not firebase_admin._apps:
+        init_firebase()
+    return firestore.client()

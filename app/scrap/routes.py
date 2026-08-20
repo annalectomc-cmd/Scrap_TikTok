@@ -95,4 +95,7 @@ def get_comments():
         scroll=scroll
     )
 
-    return jsonify(result), 200
+    if len(result) == 0:
+        return jsonify({"message": "no se encontraron comentarios"}), 500
+    else:
+        return jsonify(result), 200

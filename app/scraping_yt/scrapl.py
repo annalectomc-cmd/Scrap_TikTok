@@ -2,48 +2,38 @@ import asyncio
 import random
 import re
 import json
+from functools import partial
 from datetime import datetime, timedelta
 from playwright.async_api import Page
 from scrapling.fetchers import AsyncStealthySession
 from dateutil.relativedelta import relativedelta
 
-comments = []
-videos_cant = 0
-content_type = 1
-scrolls = 1
-search_content = ""
-watched = {}
-
 async def scrape_comments(search_text="", max_videos=1, type=1, scroll=10):
-    global videos_cant, content_type, search_content, scrolls, comments, watched
-    search_content = search_text 
-    content_type = type
-    videos_cant = max_videos
-    scrolls = scroll
-    comments = []
     watched = {}
 
     if type == 1:
         url = f"https://www.youtube.com/@{search_text}/shorts"
     else:
         url = f"https://www.youtube.com/results?search_query={search_text}"
-   
     try:
         async with AsyncStealthySession(headless=False) as session:     
-            page = await session.fetch(
+            await session.fetch(
                 url,
                 network_idle=False,
-                page_action=flujo_completo,
+                page_action=partial(
+                    flujo_completo,
+                    content_type=type,
+                    videos_cant=max_videos,
+                    scrolls=scroll,
+                    watched=watched,
+                ),
             )
-            return comments
+            return list(watched.values())
     except Exception as e:
         print(f"Error en sesión de YouTube: {e}")
         return list(watched.values())
 
-async def flujo_completo(page: Page):
-    global comments, content_type, search_content, watched
-    comments = []
-    watched = {}
+async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watched):
 
     # Interceptamos las respuestas de red para extraer comentarios directamente de los JSON de YouTube
     async def handle_response(response):
@@ -94,7 +84,7 @@ async def flujo_completo(page: Page):
         except Exception:
             pass
 
-    for i in range(0, videos_cant):
+    for _ in range(videos_cant):
         sc_com = True
         len_watched = len(watched)
         try_count = 0
@@ -130,7 +120,6 @@ async def flujo_completo(page: Page):
         await page.keyboard.press("ArrowDown")
         await asyncio.sleep(random.uniform(3, 5))
 
-    comments = list(watched.values())
     return page
 
 def get_comments_from_json(obj):
@@ -156,7 +145,7 @@ def transf_date(date: str):
        date_t = datetime.now() - timedelta(weeks= int(re.search(r"\d+", date).group()))
        date_t = datetime.strptime(str(date_t).split(" ")[0], "%Y-%m-%d").strftime("%Y-%m-%d")
     elif  "m" in date:
-        date_t = datetime.now() - relativedelta(months=value)
+        date_t = datetime.now() - relativedelta(months= int(re.search(r"\d+", date).group()))
         date_t = datetime.strptime(str(date_t).split(" ")[0], "%Y-%m-%d").strftime("%Y-%m-%d")
     else:
         date_t = datetime.now().strftime("%Y-%m-%d")

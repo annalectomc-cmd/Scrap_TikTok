@@ -1,22 +1,10 @@
 import asyncio, random, re
+from functools import partial
 from playwright.async_api import Page
 from scrapling.fetchers import AsyncStealthySession
 from datetime import datetime, timedelta
 
-comments = []
-videos_cant = 0
-content_type = 1
-scrolls = 1
-search_content = ""
-error_code = 0
-
 async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
-    global videos_cant, content_type, search_content, scrolls
-    search_content = search_text 
-    content_type = type
-    videos_cant = max_videos
-    scrolls = scroll
-    url = ""
     watched = {}
 
     if type==1:
@@ -25,20 +13,26 @@ async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
         url="https://www.tiktok.com"
     try:   
         async with AsyncStealthySession(headless=False) as session:     
-            page = await session.fetch(
+            await session.fetch(
                 url,                  #URL
                 network_idle=True,
-                page_action=flujo_completo,  # flujo 
+                page_action=partial(
+                    flujo_completo,
+                    content_type=type,
+                    search_content=search_text,
+                    videos_cant=max_videos,
+                    scrolls=scroll,
+                    watched=watched,
+                ),
             )
-            print(comments)
-            return comments
+            return list(watched.values())
     except Exception as e:
-            print(f"Error en sesión de TikTok: {e}")
-            return list(watched.values())       
+        print(f"Error en sesión de TikTok: {e}")
+        return list(watched.values())
 
-async def flujo_completo(page: Page):
-    global comments, content_type, search_content, error_code
-    watched = {}
+async def flujo_completo(
+    page: Page, *, content_type, search_content, videos_cant, scrolls, watched
+):
     await page.set_viewport_size({"width": 1280, "height": 720})
     if content_type==1:
         for x in range(50):    
@@ -58,7 +52,6 @@ async def flujo_completo(page: Page):
         await asyncio.sleep(random.uniform(1, 3))
 
         if not first_video:
-            error_code = 1
             return page
         await first_video.click()
         await asyncio.sleep(random.uniform(1, 3))
@@ -87,11 +80,10 @@ async def flujo_completo(page: Page):
         await asyncio.sleep(random.uniform(1, 3))
 
         if not first_video:
-            error_code = 1
             return page
         await first_video.click()
         await asyncio.sleep(random.uniform(1, 3))
-    for i in range(0, videos_cant):
+    for _ in range(videos_cant):
         video_id = page.url
         sc_com = True
         len_watched = len(watched)
@@ -142,7 +134,6 @@ async def flujo_completo(page: Page):
                 except Exception as e:
                     continue
             await asyncio.sleep(random.uniform(5, 8))
-            print(watched)
             if elements:
                 try:
                     await elements[-1].scroll_into_view_if_needed()                    
@@ -164,7 +155,6 @@ async def flujo_completo(page: Page):
         #elem_com = await page.query_selector("button[data-e2e='arrow-right']")
         await page.keyboard.press("ArrowDown")
         await asyncio.sleep(random.uniform(5, 8))
-    comments = list(watched.values())
     return page
 
 def transf_date(date: str):
