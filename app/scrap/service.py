@@ -12,18 +12,12 @@ from app.scraping_instagram.scrapl import scrape_comments as scrape_instagram
 class ScrapingService:
 
     @staticmethod
-    def scrape(
-        platform,
-        profile,
-        cant,
-        content_type,
-        scroll
-    ):
+    def scrape(platform, profile, cant, content_type, scroll):
         comments = []
+        videos = []
 
         if platform == 1:
-
-            comments = asyncio.run(scrape_tiktok(
+            comments, videos = asyncio.run(scrape_tiktok(
                 profile,
                 cant,
                 content_type,
@@ -59,4 +53,4 @@ class ScrapingService:
             comments
         )
         print(comments)
-        return comments
+        return comments, videos

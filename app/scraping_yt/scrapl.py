@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 
 async def scrape_comments(search_text="", max_videos=1, type=1, scroll=10):
     watched = {}
-
+    videos_info = {}
     if type == 1:
         url = f"https://www.youtube.com/@{search_text}/shorts"
     else:
@@ -26,14 +26,15 @@ async def scrape_comments(search_text="", max_videos=1, type=1, scroll=10):
                     videos_cant=max_videos,
                     scrolls=scroll,
                     watched=watched,
+                    videos_info=videos_info
                 ),
             )
-            return list(watched.values())
+            return list(watched.values()), list(videos_info.values())
     except Exception as e:
         print(f"Error en sesión de YouTube: {e}")
-        return list(watched.values())
+        return list(watched.values()), list(videos_info.values())
 
-async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watched):
+async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watched, videos_info):
 
     # Interceptamos las respuestas de red para extraer comentarios directamente de los JSON de YouTube
     async def handle_response(response):
@@ -52,6 +53,63 @@ async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watc
                             "likes": c.get("toolbar", {}).get("likeCountLiked", "0"),
                             "media": "",
                             "video_id": page.url
+                        }
+            except Exception:
+                pass
+        if "reel_item_watch?" in response.url:
+            try:
+                data = await response.json()
+                extracted = get_comments_from_json(data)
+                for c in extracted:
+                    view_model = (
+                    data["overlay"]["reelPlayerOverlayRenderer"]["playerOverlay"]
+                    ["reelPlayerOverlayViewModel"])
+
+                    metadata = view_model["metapanel"]["reelMetapanelViewModel"]["metadataItems"]
+
+                    channel_item = next(
+                        item["reelChannelBarViewModel"]
+                        for item in metadata
+                        if "reelChannelBarViewModel" in item
+                    )
+                    user = channel_item["channelName"]["content"]
+
+                    buttons = (
+                        view_model["actionBar"]["reelActionBarViewModel"]["buttonViewModels"]
+                    )
+
+                    like_item = next(
+                        item["likeButtonViewModel"]
+                        for item in buttons
+                        if "likeButtonViewModel" in item
+                    )
+                    like_button = (
+                        like_item["toggleButtonViewModel"]["toggleButtonViewModel"]
+                        ["defaultButtonViewModel"]["buttonViewModel"]
+                    )
+
+                    likes_text = like_button.get("accessibilityText", "")
+                    likes_match = re.search(r"([\d.,]+)\s*[“\"]?Me gusta", likes_text)
+                    likes = int(likes_match.group(1).replace(",", "").replace(".", "")) if likes_match else 0
+
+                    comment_button = next(
+                        item["buttonViewModel"]
+                        for item in buttons
+                        if item.get("buttonViewModel", {}).get("iconName") == "SHORTS_COMMENT"
+                    )
+                    q_comments = int(comment_button.get("title", "0").replace(",", ""))
+                    date = (
+                        data["overlay"]["reelPlayerOverlayRenderer"]
+                        ["reelPlayerHeaderSupportedRenderers"]
+                        ["reelPlayerHeaderRenderer"]
+                        ["timestampText"]["simpleText"])
+                    if page.url and page.url not in videos_info:
+                        videos_info[page.url] = {
+                            "url": page.url,
+                            "user": user,
+                            "likes": likes,
+                            "comments": q_comments,
+                            "date": transf_date(date=date),
                         }
             except Exception:
                 pass

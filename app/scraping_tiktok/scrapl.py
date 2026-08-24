@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
     watched = {}
-
+    videos_info = {}
     if type==1:
         url="https://www.tiktok.com/@"+search_text
     else:
@@ -23,16 +23,15 @@ async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
                     videos_cant=max_videos,
                     scrolls=scroll,
                     watched=watched,
+                    videos_info=videos_info
                 ),
             )
-            return list(watched.values())
+            return list(watched.values()), list(videos_info.values())
     except Exception as e:
         print(f"Error en sesión de TikTok: {e}")
-        return list(watched.values())
+        return list(watched.values()), list(videos_info.values())
 
-async def flujo_completo(
-    page: Page, *, content_type, search_content, videos_cant, scrolls, watched
-):
+async def flujo_completo(page: Page, *, content_type, search_content, videos_cant, scrolls, watched, videos_info):
     await page.set_viewport_size({"width": 1280, "height": 720})
     if content_type==1:
         for x in range(50):    
@@ -89,7 +88,18 @@ async def flujo_completo(
         len_watched = len(watched)
         try_count = 0
         scroll_count = 0
-
+        user_video = await page.query_selector("[data-e2e='browse-user-avatar']")
+        likes_video = await page.query_selector("[data-e2e='browse-like-count']")
+        q_comments = await page.query_selector("[data-e2e='browse-comment-count']")
+        date_video = await page.query_selector_all("[data-e2e='browser-nickname'] span")
+        if video_id and video_id not in videos_info:
+            videos_info[video_id] = {
+                "url": video_id,
+                "user": await user_video.get_attribute("href"),
+                "likes": await likes_video.inner_text() if likes_video else "",
+                "comments": await q_comments.inner_text() if q_comments else "",
+                "date": transf_date(await date_video[2].inner_text())
+            }
         while sc_com:
             #vista modo cine, cambia el DOM
             cine_view = False

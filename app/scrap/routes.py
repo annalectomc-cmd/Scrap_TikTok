@@ -87,7 +87,7 @@ def get_comments():
             "message": "scroll debe ser mayor que 0"
         }), 400
     
-    result = ScrapingService.scrape(
+    comments, videos = ScrapingService.scrape(
         platform=platform,
         profile=profile,
         cant=cant,
@@ -95,7 +95,8 @@ def get_comments():
         scroll=scroll
     )
 
-    if len(result) == 0:
+    if len(comments) == 0:
         return jsonify({"message": "no se encontraron comentarios"}), 500
     else:
-        return jsonify(result), 200
+        return jsonify({"comments": comments,
+                        "videos": videos}), 200
