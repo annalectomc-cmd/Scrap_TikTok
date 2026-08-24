@@ -26,7 +26,7 @@ class ScrapingService:
 
         elif platform == 2:
 
-            comments = asyncio.run(scrape_instagram(
+            comments, videos = asyncio.run(scrape_instagram(
                 profile,
                 cant,
                 content_type,
@@ -35,7 +35,7 @@ class ScrapingService:
 
         elif platform == 3:
 
-            comments = asyncio.run(scrape_yt(
+            comments, videos = asyncio.run(scrape_yt(
                 profile,
                 cant,
                 content_type,
@@ -52,5 +52,4 @@ class ScrapingService:
         ScrapingRepository.save_comments(
             comments
         )
-        print(comments)
         return comments, videos

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 async def scrape_comments(perfil_url="", max_videos=100, type=1, scroll=10):
     watched = {}
+    videos_info = {}
 
     if type == 1:
         url = f"https://www.instagram.com/{perfil_url}/reels"
@@ -18,25 +19,28 @@ async def scrape_comments(perfil_url="", max_videos=100, type=1, scroll=10):
         {"name": "csrftoken", "value": os.getenv("INSTAGRAM_CSRFTOKEN"), "domain": ".instagram.com", "path": "/"},
         {"name": "ds_user_id", "value": os.getenv("INSTAGRAM_USERID"), "domain": ".instagram.com", "path": "/"},
     ]
+    try:
+        async with AsyncStealthySession(headless=False) as session:   
+            await session.context.add_cookies(cookies)  
+            await session.fetch(
+                url,                  # URL
+                network_idle=True,
+                page_action=partial(
+                    flujo_completo,
+                    content_type=type,
+                    videos_cant=max_videos,
+                    scrolls=scroll,
+                    watched=watched,
+                    videos_info=videos_info
+                ),
+            )
+            return list(watched.values()), list(videos_info.values())
+    except Exception as e:
+            print(f"Error en sesión de Instagram: {e}")
+            return list(watched.values()), list(videos_info.values())
 
-    async with AsyncStealthySession(headless=False) as session:   
-        await session.context.add_cookies(cookies)  
-        await session.fetch(
-            url,                  # URL
-            network_idle=True,
-            page_action=partial(
-                flujo_completo,
-                content_type=type,
-                videos_cant=max_videos,
-                scrolls=scroll,
-                watched=watched,
-            ),
-        )
-        return list(watched.values())
 
-
-
-async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watched):
+async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watched, videos_info):
     # Interceptamos las respuestas de red para extraer comentarios directamente de los JSON de YouTube
     async def handle_response(response):
         if "comments/?" in response.url:
@@ -55,9 +59,25 @@ async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watc
                             "likes": c.get("comment_like_count", ""),
                             "media": "",
                             "video_id": page.url
+                        }             
+            except Exception as e:
+                pass
+        if "info/" in response.url:
+            try:
+                data = await response.json()
+                extracted = data.get("items", {})
+                
+                for c in extracted:
+                    cid = c.get("code")
+                    if cid and cid not in videos_info:
+                        videos_info[cid] = {
+                            "url": page.url,
+                            "user": c.get("user",{}).get("username", ""),
+                            "likes": c.get("like_count", 0),
+                            "comments": c.get("comment_count", 0),
+                            "date": datetime.fromtimestamp(c.get("taken_at", "")).strftime("%Y-%m-%d")
                         }
-                        print(watched[cid])
-                                      
+                        
             except Exception as e:
                 pass
 
@@ -103,7 +123,7 @@ async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watc
                 
         await asyncio.sleep(random.uniform(2, 4))
 
-    for _ in range(videos_cant):
+    for _ in range(videos_cant-1):
         
         sc_com = True
         len_watched = len(watched)
