@@ -3,6 +3,9 @@ from functools import partial
 from playwright.async_api import Page
 from scrapling.fetchers import AsyncStealthySession
 from datetime import datetime, timedelta
+from contextlib import suppress
+
+CAPTCHA_SELECTOR = "div[id*='captcha']"
 
 async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
     watched = {}
@@ -32,7 +35,17 @@ async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
         return list(watched.values()), list(videos_info.values())
 
 async def flujo_completo(page: Page, *, content_type, search_content, videos_cant, scrolls, watched, videos_info):
+
+    captcha_detected = asyncio.Event()
+    stop_watcher = asyncio.Event()
+
+    watcher = asyncio.create_task(
+        watch_captcha(page, captcha_detected, stop_watcher)
+    )
+
     await page.set_viewport_size({"width": 1280, "height": 720})
+    await asyncio.sleep(random.uniform(1, 2))
+    await handle_captcha(page, captcha_detected)
     if content_type==1:
         for x in range(50):    
             div_error = await page.query_selector_all("div[class*='DivErrorContainer']")
@@ -101,6 +114,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
                 "date": transf_date(await date_video[2].inner_text())
             }
         while sc_com:
+            await handle_captcha(page, captcha_detected)
             #vista modo cine, cambia el DOM
             cine_view = False
             elem_com_icon = await page.query_selector_all("button[aria-label*='comentario']")
@@ -165,6 +179,12 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
         #elem_com = await page.query_selector("button[data-e2e='arrow-right']")
         await page.keyboard.press("ArrowDown")
         await asyncio.sleep(random.uniform(5, 8))
+    stop_watcher.set()
+    watcher.cancel()
+
+    with suppress(asyncio.CancelledError):
+        await watcher
+
     return page
 
 def transf_date(date: str):
@@ -189,3 +209,34 @@ def transf_date(date: str):
     else:
         date_t = datetime.now().strftime("%Y-%m-%d")
     return date_t
+
+async def watch_captcha(page:Page, captcha_detected, stop_watcher):
+    while not stop_watcher.is_set():
+        try:
+            if await page.query_selector(CAPTCHA_SELECTOR):
+                captcha_detected.set()
+
+            await asyncio.sleep(10)
+        except Exception:
+            return
+
+
+async def wait_until_captcha_disappears(page:Page):
+    while await page.query_selector(CAPTCHA_SELECTOR):
+        await asyncio.sleep(1)
+
+async def handle_captcha(page, captcha_detected, timeout_seconds=300):
+    if not captcha_detected.is_set():
+        return
+    print("captcha")
+    checks = timeout_seconds // 20
+
+    for _ in range(checks):
+        await asyncio.sleep(20)
+
+        captcha = await page.query_selector(CAPTCHA_SELECTOR)
+        if not captcha:
+            captcha_detected.clear()
+            return
+
+    raise TimeoutError("El CAPTCHA sigue activo después de 5 minutos.")
