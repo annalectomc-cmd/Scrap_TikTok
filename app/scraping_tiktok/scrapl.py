@@ -78,9 +78,12 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
         divs = await tab_bar.query_selector_all(":scope > div")
         await divs[1].hover()
         await divs[1].click()
-        await asyncio.sleep(random.uniform(2, 4))
+        await asyncio.sleep(random.uniform(3, 4))
         list_us = await page.query_selector_all("[class*='DivPanelContainer'] a")
-        await list_us[0].click()
+        for x in list_us:
+            if await x.get_attribute("href") == f"/@{search_content}":
+                await x.click()
+            
         await asyncio.sleep(random.uniform(1, 2))
         await page.wait_for_selector("div[data-e2e='user-post-item']")
         first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
@@ -153,6 +156,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
                 "comments": await q_comments.inner_text() if q_comments else "",
                 "date": date
             }
+            #print(videos_info)
         while sc_com:
             await handle_captcha(page, captcha_detected)
             if cine_view:
@@ -165,22 +169,19 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
                 try:
                     
                     if cine_view:
-                        user_key = await el.query_selector("[class*='DivAvatarWrapper']")
-                        # user_key = await user_key.get_attribute("href")if user else ""
-                        cid = video_id
-                        print(await user_key+" llave")
-                        
+                        user_el = await el.query_selector("div[data-e2e='comment-username-1'] div a")
+                        user_key = await user_el.get_attribute("href")if user_el else ""
+                        cid = user_key    
                     else:    
                         cid = await el.get_attribute("id")
                     
                     if not cid or cid in watched:
                         continue
-                    print(cid)
                     if cine_view:
-                        user = await el.query_selector("[class*='DivAvatarWrapper'] a")
-                        # text = await el.query_selector("[data-e2e='comment-level-1'] span")
-                        # date = await el.query_selector("[class*='DivCommentSubContentWrapper'] span")
-                        # likes = await el.query_selector("[class*='DivLikeContainer'] span")
+                        user = user_el
+                        text = await el.query_selector("[data-e2e='comment-level-1'] span")
+                        date = await el.query_selector("[class*='DivCommentSubContentWrapper'] span")
+                        likes = await el.query_selector("[class*='DivLikeContainer'] span")
                     else:
                         user = await el.query_selector("[data-e2e='comment-avatar-1']")
                         text = await el.query_selector("[data-e2e='comment-level-1']")
