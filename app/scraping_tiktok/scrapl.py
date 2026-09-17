@@ -7,16 +7,28 @@ from contextlib import suppress
 
 CAPTCHA_SELECTOR = "div[id*='captcha']"
 
+
+def normalize_username(text: str) -> str:
+    """
+    Quita espacios, puntos, guiones y guiones bajos, y pasa a
+    minúsculas. Sirve para comparar lo que el usuario escribió
+    contra el href real del perfil, que puede tener puntuación
+    distinta a la que se tipeó (p. ej. "tigo colombia" vs
+    "/@tigo.colombia").
+    """
+    return re.sub(r"[\s_.\-]+", "", text or "").lower()
+
+
 async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
     watched = {}
     videos_info = {}
-    
-    url="https://www.tiktok.com/"
-   
-    try:   
-        async with AsyncStealthySession(headless=False) as session:     
+
+    url = "https://www.tiktok.com/"
+
+    try:
+        async with AsyncStealthySession(headless=False) as session:
             await session.fetch(
-                url,                  #URL
+                url,                  # URL
                 network_idle=True,
                 page_action=partial(
                     flujo_completo,
@@ -31,7 +43,13 @@ async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
             return list(watched.values()), list(videos_info.values())
     except Exception as e:
         print(f"Error en sesión de TikTok: {e}")
-        return list(watched.values()), list(videos_info.values())
+        # Re-lanzamos para que el endpoint Flask reciba el motivo real
+        # (perfil no encontrado, sin videos, etc.) en vez de solo un
+        # 500 genérico. Si watched/videos_info ya tienen algo útil,
+        # igual lo perdemos aquí a propósito: si hubo excepción, el
+        # resultado parcial no es confiable.
+        raise
+
 
 async def flujo_completo(page: Page, *, content_type, search_content, videos_cant, scrolls, watched, videos_info):
 
@@ -45,7 +63,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
     await page.set_viewport_size({"width": 1280, "height": 720})
     await asyncio.sleep(random.uniform(1, 2))
     await handle_captcha(page, captcha_detected)
-    if content_type==1:
+    if content_type == 1:
         login_cont = await page.query_selector("div[id*='loginContainer']")
         search_button = await page.wait_for_selector("button[data-e2e='nav-search']")
         await asyncio.sleep(random.uniform(1, 2))
@@ -67,7 +85,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
             div_error = await page.query_selector_all("div[class*='DivContainer']:has(h2[data-e2e='search-error-title'])")
             await asyncio.sleep(random.uniform(0, 1))
 
-            if div_error:    
+            if div_error:
                 button = await page.query_selector("div[class*='DivContainer']:has(h2[data-e2e='search-error-title']) button")
                 await button.hover()
                 await asyncio.sleep(random.uniform(1, 2))
@@ -79,18 +97,49 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
         await divs[1].hover()
         await divs[1].click()
         await asyncio.sleep(random.uniform(3, 4))
+
         list_us = await page.query_selector_all("[class*='DivPanelContainer'] a")
+
+        if not list_us:
+            raise ValueError(
+                f"No encontramos ningún perfil para \"{search_content}\" en TikTok."
+            )
+
+        # Buscamos coincidencia exacta normalizada (ignora espacios,
+        # puntos, guiones y mayúsculas). Si nadie matchea exacto,
+        # usamos el primer resultado: TikTok ya lo ordena por
+        # relevancia, así que suele ser el correcto cuando el usuario
+        # escribió el nombre de la marca en vez del @handle real.
+        target_norm = normalize_username(search_content)
+        matched_user = None
+
         for x in list_us:
-            if await x.get_attribute("href") == f"/@{search_content}":
-                await x.click()
-            
+            href = await x.get_attribute("href")
+            if href and normalize_username(href.replace("/@", "")) == target_norm:
+                matched_user = x
+                break
+
+        if not matched_user:
+            matched_user = list_us[0]
+
+        await matched_user.click()
+
         await asyncio.sleep(random.uniform(1, 2))
-        await page.wait_for_selector("div[data-e2e='user-post-item']")
+
+        try:
+            await page.wait_for_selector("div[data-e2e='user-post-item']", timeout=15000)
+        except Exception:
+            raise ValueError(
+                f"Entramos al perfil de \"{search_content}\" pero no se pudieron cargar sus videos."
+            )
+
         first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
         await asyncio.sleep(random.uniform(1, 3))
 
         if not first_video:
-            return page
+            raise ValueError(
+                f"El perfil de \"{search_content}\" no tiene videos disponibles."
+            )
         await first_video.click()
         await asyncio.sleep(random.uniform(1, 3))
     else:
@@ -107,7 +156,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
             div_error = await page.query_selector_all("div[class*='DivContainer']:has(h2[data-e2e='search-error-title'])")
             await asyncio.sleep(random.uniform(0, 1))
 
-            if div_error:    
+            if div_error:
                 button = await page.query_selector("div[class*='DivContainer']:has(h2[data-e2e='search-error-title']) button")
                 await button.hover()
                 await asyncio.sleep(random.uniform(1, 2))
@@ -118,7 +167,9 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
         await asyncio.sleep(random.uniform(1, 3))
 
         if not first_video:
-            return page
+            raise ValueError(
+                f"No encontramos videos para el hashtag \"{search_content}\"."
+            )
         await first_video.click()
         await asyncio.sleep(random.uniform(1, 3))
     for _ in range(videos_cant):
@@ -147,7 +198,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
             q_comments = await page.query_selector("[data-e2e='browse-comment-count']")
             date_video = await page.query_selector_all("div[data-cinema-mode-player-root='true'] span")
             date = transf_date(await date_video[2].inner_text()) if len(date_video) > 2 else ""
-        
+
         if video_id and video_id not in videos_info:
             videos_info[video_id] = {
                 "url": video_id,
@@ -162,19 +213,19 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
             if cine_view:
                 elements = await page.query_selector_all("div[class*='DivCommentObjectWrapper']")
             else:
-                
+
                 elements = await page.query_selector_all("div[data-comment-ui-enabled='true']")
             for el in elements:
-                
+
                 try:
-                    
+
                     if cine_view:
                         user_el = await el.query_selector("div[data-e2e='comment-username-1'] div a")
                         user_key = await user_el.get_attribute("href")if user_el else ""
-                        cid = user_key    
-                    else:    
+                        cid = user_key
+                    else:
                         cid = await el.get_attribute("id")
-                    
+
                     if not cid or cid in watched:
                         continue
                     if cine_view:
@@ -196,25 +247,25 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
                     "media": await img.get_attribute("src") if img else "",
                     "video_id":  video_id
                     }
-                    
+
                 except Exception as e:
                     continue
             await asyncio.sleep(random.uniform(5, 8))
             if elements:
                 try:
-                    await elements[-1].scroll_into_view_if_needed()                    
+                    await elements[-1].scroll_into_view_if_needed()
                 except:
                     continue
 
             if len_watched == len(watched):
                 try_count += 1
-                
+
                 if try_count > 5:
                     sc_com = False
             else:
                 try_count = 0
                 len_watched = len(watched)
-            
+
             if scroll_count > scrolls:
                 sc_com = False
             scroll_count += 1
@@ -242,7 +293,7 @@ def transf_date(date: str, cine=False):
     elif date.count("-") == 1:
         month = date.split("-")[1]
         day = date.split("-")[0]
-        
+
         if int(month) < 10:
             month = "0"+month
         if int(day) < 10:
