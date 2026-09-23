@@ -1,4 +1,4 @@
-import asyncio, random, re
+import asyncio, os, random, re
 from functools import partial
 from playwright.async_api import Page
 from scrapling.fetchers import AsyncStealthySession
@@ -6,6 +6,32 @@ from datetime import datetime, timedelta
 from contextlib import suppress
 
 CAPTCHA_SELECTOR = "div[id*='captcha']"
+
+# Selectores conocidos para el grid de videos de un perfil. TikTok no usa
+# siempre exactamente el mismo data-e2e para todos los layouts (cuentas
+# normales vs. verificadas/negocio a veces difieren un poco), así que
+# probamos varios antes de rendirnos. Si en el futuro aparece un layout
+# nuevo, basta con agregar el selector aquí.
+PROFILE_VIDEO_CONTAINER_SELECTORS = [
+    "div[data-e2e='user-post-item']",
+    "[data-e2e='user-post-item-list'] > div",
+]
+
+PRIVATE_ACCOUNT_SELECTOR = "[data-e2e='user-private-title'], div[class*='PrivateTitle']"
+LOGIN_WALL_SELECTOR = "div[id*='loginContainer']"
+LOGIN_WALL_CLOSE_SELECTOR = "div[data-e2e='modal-close-inner-button']"
+
+# TikTok a veces falla al traer los posts del perfil en su propio backend y
+# muestra este estado de error genérico ("Something went wrong / Sorry about
+# that! Please try again later.") con un botón de refresco, en vez del grid
+# de videos. Esto no depende de nuestro selector: es TikTok fallando en su
+# propia API interna. Lo detectamos por texto (las clases son hashes que
+# cambian) y hacemos click en "Refresh" para reintentar.
+PROFILE_LOAD_ERROR_SELECTOR = "text=Something went wrong"
+PROFILE_LOAD_ERROR_REFRESH_BUTTON = "button:has-text('Refresh')"
+MAX_PROFILE_LOAD_ERROR_RETRIES = 4
+
+DEBUG_DIR = "debug"
 
 
 def normalize_username(text: str) -> str:
@@ -49,6 +75,117 @@ async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
         # igual lo perdemos aquí a propósito: si hubo excepción, el
         # resultado parcial no es confiable.
         raise
+
+
+async def wait_for_profile_videos(page: Page, search_content: str, captcha_detected,
+                                   timeout_ms: int = 20000) -> str:
+    """
+    Espera a que carguen los videos del perfil cubriendo las variantes que
+    suelen darse en cuentas grandes/verificadas (Claro, Movistar, Tigo,
+    etc.): selectores distintos según el layout, muro de login que
+    reaparece, cuenta privada, o un primer render "colgado" que se arregla
+    con un reload.
+
+    Devuelve el selector de contenedor que efectivamente matcheó, para que
+    el llamador pueda usarlo al buscar el primer video.
+    Lanza ValueError con el motivo específico si no logra cargar nada.
+    """
+    os.makedirs(DEBUG_DIR, exist_ok=True)
+
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + (timeout_ms / 1000)
+    attempt = 0
+    reloaded = False
+    error_retries = 0
+
+    while loop.time() < deadline:
+        attempt += 1
+
+        # 1. ¿Apareció el captcha mientras esperábamos?
+        if await page.query_selector(CAPTCHA_SELECTOR):
+            captcha_detected.set()
+            await handle_captcha(page, captcha_detected)
+
+        # 2. ¿Cuenta privada? Esto no tiene arreglo por reintento.
+        if await page.query_selector(PRIVATE_ACCOUNT_SELECTOR):
+            raise ValueError(
+                f"El perfil de \"{search_content}\" es privado, no se pueden ver sus videos."
+            )
+
+        # 3. ¿Reapareció el muro de login pidiendo iniciar sesión?
+        if await page.query_selector(LOGIN_WALL_SELECTOR):
+            close_btn = await page.query_selector(LOGIN_WALL_CLOSE_SELECTOR)
+            if close_btn:
+                with suppress(Exception):
+                    await close_btn.click()
+                    await asyncio.sleep(random.uniform(1, 2))
+
+        # 4. ¿TikTok falló al traer los posts en su propia API y muestra su
+        #    error genérico ("Something went wrong")? Si es así, hacemos
+        #    click en su botón "Refresh" y le damos tiempo extra para
+        #    reintentar, hasta un límite de intentos.
+        if error_retries < MAX_PROFILE_LOAD_ERROR_RETRIES:
+            error_el = await page.query_selector(PROFILE_LOAD_ERROR_SELECTOR)
+            if error_el:
+                error_retries += 1
+                refresh_btn = await page.query_selector(PROFILE_LOAD_ERROR_REFRESH_BUTTON)
+                with suppress(Exception):
+                    if refresh_btn:
+                        await refresh_btn.click()
+                    else:
+                        await page.reload(wait_until="domcontentloaded")
+                # cada reintento le da un poco más de tiempo total, porque
+                # el problema es del lado de TikTok, no nuestro
+                deadline += 8
+                await asyncio.sleep(random.uniform(3, 5))
+                continue
+
+        # 5. ¿Ya está el grid de videos con alguno de los selectores conocidos?
+        for sel in PROFILE_VIDEO_CONTAINER_SELECTORS:
+            el = await page.query_selector(sel)
+            if el:
+                return sel
+
+        # 6. Si vamos por la mitad del tiempo y nada aparece, forzamos un
+        #    reload una sola vez (a veces el SPA se queda colgado en el
+        #    primer load de cuentas con mucho contenido/pines).
+        if not reloaded and loop.time() > deadline - (timeout_ms / 2000):
+            reloaded = True
+            with suppress(Exception):
+                await page.reload(wait_until="domcontentloaded")
+                await asyncio.sleep(random.uniform(2, 3))
+
+        await asyncio.sleep(0.5)
+
+    # Nada funcionó: guardamos evidencia para diagnosticar y lanzamos el
+    # error genérico (mantiene compatibilidad con el mensaje que ya
+    # maneja el frontend), pero ahora con screenshot + HTML de respaldo.
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", search_content) or "perfil"
+    screenshot_path = f"{DEBUG_DIR}/{safe_name}_{ts}.png"
+    html_path = f"{DEBUG_DIR}/{safe_name}_{ts}.html"
+
+    with suppress(Exception):
+        await page.screenshot(path=screenshot_path, full_page=True)
+    with suppress(Exception):
+        html = await page.content()
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html)
+
+    still_erroring = await page.query_selector(PROFILE_LOAD_ERROR_SELECTOR)
+    reason = (
+        f"TikTok mostró su propio error \"Something went wrong\" al traer los posts "
+        f"({error_retries} reintento(s) de refresh agotados)"
+        if still_erroring else
+        "no se detectó el estado de error de TikTok ni el grid de videos (posible cambio de selector)"
+    )
+
+    print(f"[DEBUG] No se encontró el grid de videos de \"{search_content}\" — {reason}. "
+          f"Evidencia guardada en {screenshot_path} / {html_path}")
+
+    raise ValueError(
+        f"Entramos al perfil de \"{search_content}\" pero no se pudieron cargar sus videos."
+    )
 
 
 async def flujo_completo(page: Page, *, content_type, search_content, videos_cant, scrolls, watched, videos_info):
@@ -124,16 +261,18 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
 
         await matched_user.click()
 
+        # Esperamos la navegación real al perfil (en vez de solo un sleep
+        # fijo). Si el click no navegó por algún motivo, esto lo detecta
+        # rápido en vez de quedarnos "esperando" en la página de búsqueda.
+        with suppress(Exception):
+            await page.wait_for_url("**/@*", timeout=10000)
         await asyncio.sleep(random.uniform(1, 2))
 
-        try:
-            await page.wait_for_selector("div[data-e2e='user-post-item']", timeout=15000)
-        except Exception:
-            raise ValueError(
-                f"Entramos al perfil de \"{search_content}\" pero no se pudieron cargar sus videos."
-            )
+        matched_selector = await wait_for_profile_videos(page, search_content, captcha_detected)
 
-        first_video = await page.query_selector("div[data-e2e='user-post-item'] a")
+        first_video = await page.query_selector(f"{matched_selector} a")
+        if not first_video:
+            first_video = await page.query_selector(matched_selector)
         await asyncio.sleep(random.uniform(1, 3))
 
         if not first_video:
