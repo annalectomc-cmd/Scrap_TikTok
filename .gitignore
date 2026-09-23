@@ -21,3 +21,6 @@ build/
 app.spec
 
 scraping-93adf-firebase-adminsdk-fbsvc-7e36404fe6.json
+
+# Evidencia de debug del scraper (no se versiona)
+debug/
