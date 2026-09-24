@@ -45,7 +45,7 @@ def normalize_username(text: str) -> str:
     return re.sub(r"[\s_.\-]+", "", text or "").lower()
 
 
-async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
+async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10, captcha_callback=None):
     watched = {}
     videos_info = {}
 
@@ -63,7 +63,8 @@ async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
                     videos_cant=max_videos,
                     scrolls=scroll,
                     watched=watched,
-                    videos_info=videos_info
+                    videos_info=videos_info,
+                    captcha_callback=captcha_callback,
                 ),
             )
             return list(watched.values()), list(videos_info.values())
@@ -78,7 +79,7 @@ async def scrape_comments(search_text="", max_videos=100, type=1, scroll=10):
 
 
 async def wait_for_profile_videos(page: Page, search_content: str, captcha_detected,
-                                   timeout_ms: int = 20000) -> str:
+                                   timeout_ms: int = 20000, captcha_callback=None) -> str:
     """
     Espera a que carguen los videos del perfil cubriendo las variantes que
     suelen darse en cuentas grandes/verificadas (Claro, Movistar, Tigo,
@@ -104,7 +105,7 @@ async def wait_for_profile_videos(page: Page, search_content: str, captcha_detec
         # 1. ¿Apareció el captcha mientras esperábamos?
         if await page.query_selector(CAPTCHA_SELECTOR):
             captcha_detected.set()
-            await handle_captcha(page, captcha_detected)
+            await handle_captcha(page, captcha_detected, captcha_callback=captcha_callback)
 
         # 2. ¿Cuenta privada? Esto no tiene arreglo por reintento.
         if await page.query_selector(PRIVATE_ACCOUNT_SELECTOR):
@@ -188,7 +189,8 @@ async def wait_for_profile_videos(page: Page, search_content: str, captcha_detec
     )
 
 
-async def flujo_completo(page: Page, *, content_type, search_content, videos_cant, scrolls, watched, videos_info):
+async def flujo_completo(page: Page, *, content_type, search_content, videos_cant, scrolls, watched, videos_info,
+                         captcha_callback=None):
 
     captcha_detected = asyncio.Event()
     stop_watcher = asyncio.Event()
@@ -199,7 +201,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
 
     await page.set_viewport_size({"width": 1280, "height": 720})
     await asyncio.sleep(random.uniform(1, 2))
-    await handle_captcha(page, captcha_detected)
+    await handle_captcha(page, captcha_detected, captcha_callback=captcha_callback)
     if content_type == 1:
         login_cont = await page.query_selector("div[id*='loginContainer']")
         search_button = await page.wait_for_selector("button[data-e2e='nav-search']")
@@ -270,7 +272,9 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
             await page.wait_for_url("**/@*", timeout=10000)
         await asyncio.sleep(random.uniform(1, 2))
 
-        matched_selector = await wait_for_profile_videos(page, search_content, captcha_detected)
+        matched_selector = await wait_for_profile_videos(
+            page, search_content, captcha_detected, captcha_callback=captcha_callback
+        )
 
         first_video = await page.query_selector(f"{matched_selector} a")
         if not first_video:
@@ -318,7 +322,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
         await first_video.click()
         await asyncio.sleep(random.uniform(1, 3))
     for _ in range(videos_cant):
-        await handle_captcha(page, captcha_detected)
+        await handle_captcha(page, captcha_detected, captcha_callback=captcha_callback)
         video_id = page.url
         sc_com = True
         len_watched = len(watched)
@@ -354,7 +358,7 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
             }
             #print(videos_info)
         while sc_com:
-            await handle_captcha(page, captcha_detected)
+            await handle_captcha(page, captcha_detected, captcha_callback=captcha_callback)
             if cine_view:
                 elements = await page.query_selector_all("div[class*='DivCommentObjectWrapper']")
             else:
@@ -465,18 +469,23 @@ async def wait_until_captcha_disappears(page:Page):
     while await page.query_selector(CAPTCHA_SELECTOR):
         await asyncio.sleep(1)
 
-async def handle_captcha(page:Page, captcha_detected, timeout_seconds=300):
+async def handle_captcha(page: Page, captcha_detected, timeout_seconds=None, captcha_callback=None):
     if not captcha_detected.is_set():
         return
-    print("captcha")
-    checks = timeout_seconds // 30
+    if captcha_callback:
+        captcha_callback(True)
 
-    for _ in range(checks):
-        await asyncio.sleep(20)
+    timeout_seconds = timeout_seconds or int(os.getenv("CAPTCHA_TIMEOUT_SECONDS", "900"))
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    print("CAPTCHA detectado: esperando interacción del usuario en noVNC")
 
+    while asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(2)
         captcha = await page.query_selector(CAPTCHA_SELECTOR)
         if not captcha:
             captcha_detected.clear()
+            if captcha_callback:
+                captcha_callback(False)
             return
 
-    raise TimeoutError("El CAPTCHA sigue activo después de 5 minutos.")
+    raise TimeoutError("El CAPTCHA no se resolvió antes del tiempo límite.")

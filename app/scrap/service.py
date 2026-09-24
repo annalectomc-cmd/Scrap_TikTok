@@ -12,7 +12,7 @@ from app.scraping_instagram.scrapl import scrape_comments as scrape_instagram
 class ScrapingService:
 
     @staticmethod
-    def scrape(platform, profile, cant, content_type, scroll):
+    def scrape(platform, profile, cant, content_type, scroll, captcha_callback=None):
         comments = []
         videos = []
 
@@ -21,7 +21,8 @@ class ScrapingService:
                 profile,
                 cant,
                 content_type,
-                scroll
+                scroll,
+                captcha_callback=captcha_callback,
             ))
 
         elif platform == 2:

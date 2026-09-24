@@ -1,0 +1,17 @@
+services:
+  api:
+    build: .
+    ports:
+      - "5000:5000"
+      # Sólo para desarrollo local. En producción, no se debe publicar este
+      # puerto: un reverse proxy autenticado debe exponer noVNC.
+      - "127.0.0.1:6080:6080"
+    env_file:
+      - .env
+    environment:
+      # La URL que recibirá el frontend al requerirse interacción humana.
+      # En producción debe apuntar a la ruta autenticada del reverse proxy.
+      NOVNC_PUBLIC_URL: "http://localhost:6080/vnc.html?autoconnect=true&resize=scale"
+      CAPTCHA_TIMEOUT_SECONDS: "900"
+    volumes:
+      - ./scraping-93adf-firebase-adminsdk-fbsvc-7e36404fe6.json:/app/scraping-93adf-firebase-adminsdk-fbsvc-7e36404fe6.json:ro

@@ -1,8 +1,80 @@
 from flask import Blueprint, jsonify, request
+from app.scrap.jobs import scraping_jobs
 from app.scrap.service import ScrapingService
 
 
 scrap_bp = Blueprint("scrap", __name__)
+
+
+def _scraping_parameters(source):
+    """Valida una solicitud JSON (o query string) y devuelve sus parámetros."""
+    def number(name):
+        try:
+            return int(source.get(name))
+        except (TypeError, ValueError):
+            return None
+
+    platform = number("platform")
+    profile = source.get("profile", "").strip() if isinstance(source.get("profile"), str) else ""
+    cant = number("cant")
+    content_type = number("type")
+    scroll = number("scroll")
+
+    missing = [
+        name for name, value in {
+            "platform": platform,
+            "profile": profile,
+            "cant": cant,
+            "type": content_type,
+            "scroll": scroll,
+        }.items() if value is None or value == ""
+    ]
+    if missing:
+        return None, {"message": "Faltan o son inválidos parámetros obligatorios", "parameters": missing}
+
+    if platform not in [1, 2, 3]:
+        return None, {"message": "platform debe ser 1, 2 o 3"}
+    if cant <= 0:
+        return None, {"message": "cant debe ser mayor que 0"}
+    if content_type not in [1, 2]:
+        return None, {"message": "type debe ser 1 o 2"}
+    if scroll <= 0:
+        return None, {"message": "scroll debe ser mayor que 0"}
+
+    return {
+        "platform": platform,
+        "profile": profile,
+        "cant": cant,
+        "content_type": content_type,
+        "scroll": scroll,
+    }, None
+
+
+@scrap_bp.post("/jobs")
+def create_job():
+    """Inicia un scraping en segundo plano.
+
+    El estado `captcha_required` incluye `browser_url`. El frontend debe abrir
+    esa URL en un iframe o en una pestaña para que el usuario resuelva el
+    CAPTCHA; el trabajo continúa automáticamente cuando éste desaparece.
+    """
+    source = request.get_json(silent=True)
+    if not isinstance(source, dict):
+        source = request.args
+
+    parameters, error = _scraping_parameters(source)
+    if error:
+        return jsonify(error), 400
+
+    return jsonify(scraping_jobs.create(parameters)), 202
+
+
+@scrap_bp.get("/jobs/<job_id>")
+def get_job(job_id):
+    job = scraping_jobs.get(job_id)
+    if job is None:
+        return jsonify({"message": "Trabajo no encontrado"}), 404
+    return jsonify(job), 200
 
 @scrap_bp.get("/comments")
 def get_comments():
