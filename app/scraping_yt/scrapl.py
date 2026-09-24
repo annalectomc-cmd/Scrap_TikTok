@@ -139,7 +139,7 @@ async def flujo_completo(page: Page, *, content_type, videos_cant, scrolls, watc
         try:
             await elem_com_icon.click()
             await asyncio.sleep(2)
-        except Exception:
+        except Exception as e:
             pass
 
     for _ in range(videos_cant):

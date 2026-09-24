@@ -238,6 +238,8 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
         list_us = await page.query_selector_all("[class*='DivPanelContainer'] a")
 
         if not list_us:
+            stop_watcher.set()
+            watcher.cancel()
             raise ValueError(
                 f"No encontramos ningún perfil para \"{search_content}\" en TikTok."
             )
@@ -276,6 +278,8 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
         await asyncio.sleep(random.uniform(1, 3))
 
         if not first_video:
+            stop_watcher.set()
+            watcher.cancel()
             raise ValueError(
                 f"El perfil de \"{search_content}\" no tiene videos disponibles."
             )
@@ -306,6 +310,8 @@ async def flujo_completo(page: Page, *, content_type, search_content, videos_can
         await asyncio.sleep(random.uniform(1, 3))
 
         if not first_video:
+            stop_watcher.set()
+            watcher.cancel()
             raise ValueError(
                 f"No encontramos videos para el hashtag \"{search_content}\"."
             )
